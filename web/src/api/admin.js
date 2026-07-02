@@ -6,3 +6,5 @@ export const apiDashboard = () => http.get('/admin/dashboard')
 export const apiAdminUsers = (params) => http.get('/admin/users', { params })
 export const apiSetUserStatus = (id, status) =>
   http.patch(`/admin/users/${id}/status`, { status })
+export const apiRealms = () => http.get('/admin/realms')
+export const apiRankings = () => http.get('/admin/rankings')

@@ -7,20 +7,55 @@ import {
   updateUserStatus,
   findPublicById,
 } from '../models/userModel.js'
+import { rankByRealm, rankOnlineByRealm, rankByDeath } from '../models/userModel.js'
+import { listRealms, countRealms } from '../models/realmModel.js'
 
 // 仪表盘统计
 export async function dashboard(req, res, next) {
   try {
-    const [totalUsers, activeUsers, disabledUsers, newUsersToday, totalAdmins] =
+    const [totalUsers, activeUsers, disabledUsers, newUsersToday, totalAdmins, totalRealms] =
       await Promise.all([
         countUsers(),
         countUsersByStatus(1),
         countUsersByStatus(0),
         countUsersRegisteredToday(),
         countAdmins(),
+        countRealms(),
       ])
 
-    res.json({ totalUsers, activeUsers, disabledUsers, newUsersToday, totalAdmins })
+    res.json({
+      totalUsers,
+      activeUsers,
+      disabledUsers,
+      newUsersToday,
+      totalAdmins,
+      totalRealms,
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// 境界列表（全部，按境界序号升序）
+export async function getRealms(req, res, next) {
+  try {
+    const list = await listRealms()
+    res.json({ list, total: list.length })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// 排行榜：境界榜 / 在线榜(按境界) / 死亡榜
+export async function rankings(req, res, next) {
+  try {
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 10))
+    const [realmTop, onlineTop, deathTop] = await Promise.all([
+      rankByRealm(limit),
+      rankOnlineByRealm(limit),
+      rankByDeath(limit),
+    ])
+    res.json({ realmTop, onlineTop, deathTop })
   } catch (err) {
     next(err)
   }

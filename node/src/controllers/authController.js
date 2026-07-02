@@ -5,6 +5,7 @@ import {
   createUser,
   findPublicById,
   updateLoginState,
+  setOnline,
 } from '../models/userModel.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signToken } from '../utils/jwt.js'
@@ -82,6 +83,16 @@ export async function login(req, res, next) {
     const user = await findPublicById(record.id)
 
     res.json({ token, user })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// 登出：置为离线（需鉴权）
+export async function logout(req, res, next) {
+  try {
+    await setOnline(req.user.id, 0)
+    res.json({ ok: true })
   } catch (err) {
     next(err)
   }

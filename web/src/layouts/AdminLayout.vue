@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiAdminProfile } from '../api/admin.js'
+import { apiLogout } from '../api/auth.js'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -17,7 +18,8 @@ onMounted(async () => {
   }
 })
 
-function onLogout() {
+async function onLogout() {
+  await apiLogout().catch(() => {}) // 尽力置离线，失败不阻塞
   auth.logout()
   router.replace({ name: 'login' })
 }
@@ -36,6 +38,9 @@ function onLogout() {
         </RouterLink>
         <RouterLink :to="{ name: 'admin-users' }">
           <span class="ico">☰</span> 用户管理
+        </RouterLink>
+        <RouterLink :to="{ name: 'admin-realms' }">
+          <span class="ico">☯</span> 境界列表
         </RouterLink>
       </nav>
     </aside>

@@ -38,6 +38,11 @@ const routes = [
         name: 'admin-users',
         component: () => import('../views/admin/UsersView.vue'),
       },
+      {
+        path: 'realms',
+        name: 'admin-realms',
+        component: () => import('../views/admin/RealmsView.vue'),
+      },
     ],
   },
 ]

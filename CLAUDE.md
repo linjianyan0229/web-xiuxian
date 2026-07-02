@@ -47,9 +47,12 @@ npm run preview    # 预览构建产物
 - **自动初始化**：`node/src/config/db.js` 的 `initDatabase()` 在服务启动时执行——先创建数据库（`CREATE DATABASE IF NOT EXISTS`），再建表，最后创建连接池。`server.js` 会先 `await initDatabase()` 再 `app.listen`，连库失败则退出。
 - 建表 DDL 内联在 `db.js` 中。新增表时在此追加 `CREATE TABLE IF NOT EXISTS`，无独立迁移工具。
 - **单表模型**：玩家和管理员同在 `users` 表，用 `role` 区分（0=玩家，1=管理员），没有独立的 admins 表。
-- `users` 表字段：`id, dao_name(道号,唯一), email(唯一), password(bcrypt哈希), email_code(邮箱验证码), role(0玩家/1管理员), status(0禁用/1正常), register_time, login_time, access_token`。
+- `users` 表字段：`id, dao_name(道号,唯一), email(唯一), password(bcrypt哈希), email_code(邮箱验证码), role(0玩家/1管理员), status(0禁用/1正常), realm_id(当前境界, 默认1=凡人), is_online(0离线/1在线), death_count(死亡次数), register_time, login_time, access_token`。
+- **在线态**：登录/注册时置 `is_online=1`，`POST /api/auth/logout`(需鉴权) 置 0；服务启动时 `UPDATE users SET is_online=0` 清零，避免残留。`death_count` 目前无游戏机制写入（突破/死亡系统未做），排行榜查询已就绪，待机制接入后自然填充。
+- **境界表 `realms`**：`id`(境界序号, 1=凡人 … 83=圣人, 非自增, 直接用数据文件的 id 作主键) + 各项属性(hp/ling_qi/attack/defense/spirit)与晋级要求(requirement_type/advance_exp/dao_yun_required/dao_law_required/tribulation_type/tribulation_death_rate/next_realm/note)。种子数据在 `node/src/data/realms.json`（由 `资源文件/境界相关/cultivation_realm_table.json` 复制而来），`seedRealms()` 在表为空时批量导入(用 `pool.query` 的 `VALUES ?` 批插，execute 不支持)。
+- `users.realm_id` 绑定境界，所有人初始化为 `1`(凡人)；`userModel` 的用户视图 `USER_SELECT` 用 `LEFT JOIN realms` 带出 `realm_name`。
 - **默认管理员**：`initDatabase()` 中的 `seedDefaultAdmin()` 在 `users` 表无 `role=1` 记录时插入一条管理员（道号=`ADMIN_USERNAME`，邮箱=`ADMIN_EMAIL`，密码=`ADMIN_PASSWORD`，默认 `admin` / `admin@xiuxian.local` / `admin123456`）。幂等，已存在则跳过。管理员用道号或邮箱登录。
-- **迁移**：`ensureColumn()` 幂等补列（MySQL 无 `ADD COLUMN IF NOT EXISTS`），启动时给老 `users` 表补 `role` 列；并 `DROP TABLE IF EXISTS admins` 清理旧设计。新增字段照此模式在 `initDatabase()` 里加 `ensureColumn` 调用。
+- **迁移**：`ensureColumn()` 幂等补列（MySQL 无 `ADD COLUMN IF NOT EXISTS`），启动时给老 `users` 表补 `role`、`realm_id` 列；并 `DROP TABLE IF EXISTS admins` 清理旧设计。新增字段照此模式在 `initDatabase()` 里加 `ensureColumn` 调用。
 - 数据访问集中在 `node/src/models/userModel.js`（原生 SQL + `query()` 封装），不使用 ORM。后台的玩家统计/列表/改状态都限定 `role=0`——管理员不出现在用户管理里，也无法被误禁用（`updateUserStatus` 带 `AND role=0`，改不到会返回 404）。分页 `listUsers` 因 mysql2 对 LIMIT 占位符的限制，把已 clamp 的整数 `LIMIT/OFFSET` 直接内联，仅关键字用 `?` 占位。
 
 ## 鉴权
@@ -68,19 +71,24 @@ npm run preview    # 预览构建产物
 - `POST /api/auth/register` — `{ daoName, email, password }` → `{ token, user }`（新用户恒为玩家）
 - `POST /api/auth/login` — `{ account, password }`（account 可为道号或邮箱；管理员也用此接口登录）→ `{ token, user }`，`user.role` 决定前端跳向后台还是游戏
 - `GET /api/user/profile` — 需用户鉴权 → `{ user }`
+- `GET /api/user/rankings` — 需用户鉴权 → `{ realmTop, onlineTop, deathTop }`（各前十，供前台首页展示；与后台 `/admin/rankings` 同源，仅鉴权层不同）
+- `POST /api/auth/logout` — 需用户鉴权，置离线 → `{ ok: true }`
 
 后台管理（均需管理员鉴权，即 role=admin 的令牌）：
 - `GET /api/admin/profile` → `{ admin }`
-- `GET /api/admin/dashboard` → `{ totalUsers, activeUsers, disabledUsers, newUsersToday, totalAdmins }`
-- `GET /api/admin/users?page&pageSize&keyword` → `{ list, total, page, pageSize }`
+- `GET /api/admin/dashboard` → `{ totalUsers, activeUsers, disabledUsers, newUsersToday, totalAdmins, totalRealms }`
+- `GET /api/admin/users?page&pageSize&keyword` → `{ list, total, page, pageSize }`（list 每项带 `realm_id`/`realm_name`）
 - `PATCH /api/admin/users/:id/status` — `{ status: 0|1 }` → `{ user }`
+- `GET /api/admin/realms` → `{ list, total }`（全部境界，按 id 升序）
+- `GET /api/admin/rankings?limit` → `{ realmTop, onlineTop, deathTop }`（境界榜/在线榜按境界降序，死亡榜按 death_count 降序；均只含 role=0）
 
 ## 前端结构
 
 - **单一登录态**：整个前端只有一套 `token`/`user`（`stores/auth.js` + `api/http.js`，baseURL `/api`）。后台 API（`api/admin.js`）复用同一个 `http` 实例，不再有独立的 admin store/axios。`http` 响应拦截在 401 时清理登录态并跳 `/login`。
-- 路由 `src/router/index.js`：`/login`、`/register`、`/home`（游戏），`/admin`（`AdminLayout` + 子路由 `dashboard`/`users`）。**没有 `/admin/login`**——登录后 `LoginView` 按 `auth.user.role` 分流（管理员→`admin-dashboard`，玩家→`home`）。
+- 路由 `src/router/index.js`：`/login`、`/register`、`/home`（游戏），`/admin`（`AdminLayout` + 子路由 `dashboard`/`users`/`realms`）。**没有 `/admin/login`**——登录后 `LoginView` 按 `auth.user.role` 分流（管理员→`admin-dashboard`，玩家→`home`）。
 - 全局守卫按单一 `token` + `user.role` 管控：`requiresAuth` 无 token 跳 `login`；`requiresAdmin` 无 token 跳 `login`、非管理员跳 `home`；`guestOnly` 已登录按角色跳对应首页。
-- 后台页面在 `src/views/admin/`（`DashboardView`/`UsersView`），布局 `src/layouts/AdminLayout.vue`（侧边栏 + 顶栏，用 `useAuthStore` 取管理员信息与登出）。
+- 后台页面在 `src/views/admin/`（`DashboardView` 含统计卡 + 三张排行榜、`UsersView`、`RealmsView`），布局 `src/layouts/AdminLayout.vue`（侧边栏 + 顶栏，用 `useAuthStore` 取管理员信息与登出）。用户管理列表与游戏首页均展示玩家当前境界(`realm_name`)。
+- **游戏首页 `HomeView.vue`** 按参考图（`资源文件/参考图/`）做成水墨仙侠 HUD：顶部资源栏 + 左侧模块导航(修行等) + 角色卡 + 中间境界/修炼/常用功能 + 右侧「修仙榜(境界/在线/死亡三 tab, 各前十, 走 `/api/user/rankings` 真实数据)/今日修炼/修行日志」。自带一套固定水墨浅色配色（组件内 CSS 变量，不随系统深浅变化）。真实数据用道号/境界/时间；修炼、宗门、丹药等**游戏系统尚未接后端，为占位展示**（点击提示"敬请期待"）。退出按钮会调 `apiLogout` 置离线。
 - 主题：`src/style.css` 用 CSS 变量定义配色，通过 `@media (prefers-color-scheme: dark)` 适配系统深/浅色；表单基元类（`.field/.btn/.form-error`）为全局样式，页面级样式用 SFC `scoped`。
 
 ## 架构要点

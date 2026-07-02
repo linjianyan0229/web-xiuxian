@@ -91,6 +91,7 @@ onMounted(load)
             <th>ID</th>
             <th>道号</th>
             <th>邮箱</th>
+            <th>境界</th>
             <th>状态</th>
             <th>注册时间</th>
             <th>上次登录</th>
@@ -102,6 +103,7 @@ onMounted(load)
             <td>{{ row.id }}</td>
             <td class="strong">{{ row.dao_name }}</td>
             <td>{{ row.email }}</td>
+            <td><span class="realm">{{ row.realm_name || '—' }}</span></td>
             <td>
               <span class="tag" :class="row.status === 1 ? 'ok' : 'off'">
                 {{ row.status === 1 ? '正常' : '禁用' }}
@@ -121,7 +123,7 @@ onMounted(load)
             </td>
           </tr>
           <tr v-if="!loading && state.list.length === 0">
-            <td colspan="7" class="empty">暂无数据</td>
+            <td colspan="8" class="empty">暂无数据</td>
           </tr>
         </tbody>
       </table>
@@ -221,6 +223,10 @@ td.muted {
   padding: 2px 10px;
   font-size: 12px;
   border-radius: 999px;
+}
+.realm {
+  color: var(--text-h);
+  font-weight: 500;
 }
 .tag.ok {
   color: var(--accent);

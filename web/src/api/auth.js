@@ -13,3 +13,7 @@ export function apiLogin(payload) {
 export function apiGetProfile() {
   return http.get('/user/profile')
 }
+
+export function apiLogout() {
+  return http.post('/auth/logout')
+}
