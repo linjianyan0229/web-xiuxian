@@ -1,8 +1,8 @@
-import adminHttp from './adminHttp.js'
+import http from './http.js'
 
-export const apiAdminLogin = (payload) => adminHttp.post('/login', payload)
-export const apiAdminProfile = () => adminHttp.get('/profile')
-export const apiDashboard = () => adminHttp.get('/dashboard')
-export const apiAdminUsers = (params) => adminHttp.get('/users', { params })
+// 后台接口复用同一个 http 实例（同一令牌，令牌里带 role=admin）
+export const apiAdminProfile = () => http.get('/admin/profile')
+export const apiDashboard = () => http.get('/admin/dashboard')
+export const apiAdminUsers = (params) => http.get('/admin/users', { params })
 export const apiSetUserStatus = (id, status) =>
-  adminHttp.patch(`/users/${id}/status`, { status })
+  http.patch(`/admin/users/${id}/status`, { status })

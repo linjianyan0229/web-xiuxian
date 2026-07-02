@@ -1,25 +1,25 @@
 <script setup>
 import { onMounted } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
-import { useAdminStore } from '../stores/admin.js'
+import { useAuthStore } from '../stores/auth.js'
 import { apiAdminProfile } from '../api/admin.js'
 
 const router = useRouter()
-const admin = useAdminStore()
+const auth = useAuthStore()
 
-// 进入后台时校验令牌有效性（失效由拦截器统一跳登录）
+// 进入后台时校验管理员令牌有效性（401 由拦截器统一跳登录）
 onMounted(async () => {
   try {
-    const { admin: a } = await apiAdminProfile()
-    admin.info = a
+    const { admin } = await apiAdminProfile()
+    auth.user = admin
   } catch {
     /* 拦截器已处理跳转 */
   }
 })
 
 function onLogout() {
-  admin.logout()
-  router.replace({ name: 'admin-login' })
+  auth.logout()
+  router.replace({ name: 'login' })
 }
 </script>
 
@@ -44,7 +44,7 @@ function onLogout() {
       <header class="topbar">
         <div class="crumb">控制台</div>
         <div class="account">
-          <span class="who">{{ admin.info?.nickname || admin.info?.username || '管理员' }}</span>
+          <span class="who">{{ auth.user?.dao_name || '管理员' }}</span>
           <button class="ghost" @click="onLogout">退出</button>
         </div>
       </header>

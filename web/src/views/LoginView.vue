@@ -20,7 +20,8 @@ async function onSubmit() {
   loading.value = true
   try {
     await auth.login({ account: form.account, password: form.password })
-    router.push({ name: 'home' })
+    // 按角色分流：管理员进后台，玩家进游戏
+    router.push({ name: auth.user?.role === 1 ? 'admin-dashboard' : 'home' })
   } catch (e) {
     error.value = e.message
   } finally {

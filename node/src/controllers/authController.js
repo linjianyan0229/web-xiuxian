@@ -40,8 +40,8 @@ export async function register(req, res, next) {
     const hashed = await hashPassword(password)
     const id = await createUser({ daoName, email, password: hashed })
 
-    // 注册成功即签发令牌，前端可直接进入
-    const token = signToken({ id, daoName })
+    // 注册成功即签发令牌，前端可直接进入（新用户恒为玩家）
+    const token = signToken({ id, daoName, role: 'user' })
     await updateLoginState(id, token)
     const user = await findPublicById(id)
 
@@ -72,7 +72,12 @@ export async function login(req, res, next) {
       return res.status(401).json({ error: '账号或密码错误' })
     }
 
-    const token = signToken({ id: record.id, daoName: record.dao_name })
+    // 令牌带 role：管理员(role=1)签发 'admin'，玩家签发 'user'；后台接口据此鉴权
+    const token = signToken({
+      id: record.id,
+      daoName: record.dao_name,
+      role: record.role === 1 ? 'admin' : 'user',
+    })
     await updateLoginState(record.id, token)
     const user = await findPublicById(record.id)
 

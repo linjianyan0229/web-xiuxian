@@ -2,11 +2,11 @@ import {
   countUsers,
   countUsersByStatus,
   countUsersRegisteredToday,
+  countAdmins,
   listUsers,
   updateUserStatus,
   findPublicById,
 } from '../models/userModel.js'
-import { countAdmins } from '../models/adminModel.js'
 
 // 仪表盘统计
 export async function dashboard(req, res, next) {

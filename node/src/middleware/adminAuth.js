@@ -1,7 +1,7 @@
 import { verifyToken } from '../utils/jwt.js'
-import { findAdminPublicById } from '../models/adminModel.js'
+import { findPublicById } from '../models/userModel.js'
 
-// 管理员鉴权中间件：校验令牌且 role 必须为 admin
+// 管理员鉴权中间件：令牌 role 必须为 admin，且对应 users 记录 role=1
 export async function adminAuthRequired(req, res, next) {
   try {
     const header = req.headers.authorization || ''
@@ -21,15 +21,18 @@ export async function adminAuthRequired(req, res, next) {
       return res.status(403).json({ error: '无管理员权限' })
     }
 
-    const admin = await findAdminPublicById(payload.id)
-    if (!admin) {
+    const user = await findPublicById(payload.id)
+    if (!user) {
       return res.status(401).json({ error: '管理员不存在' })
     }
-    if (admin.status !== 1) {
+    if (user.role !== 1) {
+      return res.status(403).json({ error: '无管理员权限' })
+    }
+    if (user.status !== 1) {
       return res.status(403).json({ error: '账号已被禁用' })
     }
 
-    req.admin = admin
+    req.admin = user
     next()
   } catch (err) {
     next(err)

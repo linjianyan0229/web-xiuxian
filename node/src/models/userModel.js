@@ -2,7 +2,7 @@ import { query } from '../config/db.js'
 
 // 对外暴露的安全字段（不含 password / email_code）
 const PUBLIC_FIELDS =
-  'id, dao_name, email, status, register_time, login_time'
+  'id, dao_name, email, role, status, register_time, login_time'
 
 export async function findByEmail(email) {
   const rows = await query('SELECT * FROM users WHERE email = ? LIMIT 1', [email])
@@ -33,8 +33,8 @@ export async function findPublicById(id) {
 
 export async function createUser({ daoName, email, password, emailCode = null }) {
   const result = await query(
-    `INSERT INTO users (dao_name, email, password, email_code, status)
-     VALUES (?, ?, ?, ?, 1)`,
+    `INSERT INTO users (dao_name, email, password, email_code, role, status)
+     VALUES (?, ?, ?, ?, 0, 1)`,
     [daoName, email, password, emailCode]
   )
   return result.insertId
@@ -48,34 +48,44 @@ export async function updateLoginState(id, accessToken) {
   )
 }
 
-/* ---------- 后台管理用查询 ---------- */
+/* ---------- 后台管理用查询（玩家 role=0，管理员 role=1）---------- */
 
 export async function countUsers() {
-  const rows = await query('SELECT COUNT(*) AS c FROM users')
+  const rows = await query('SELECT COUNT(*) AS c FROM users WHERE role = 0')
   return rows[0].c
 }
 
 export async function countUsersByStatus(status) {
-  const rows = await query('SELECT COUNT(*) AS c FROM users WHERE status = ?', [status])
+  const rows = await query(
+    'SELECT COUNT(*) AS c FROM users WHERE role = 0 AND status = ?',
+    [status]
+  )
   return rows[0].c
 }
 
-// 今日新增（按注册时间 >= 今日零点）
+// 今日新增玩家（按注册时间 >= 今日零点）
 export async function countUsersRegisteredToday() {
-  const rows = await query('SELECT COUNT(*) AS c FROM users WHERE register_time >= CURDATE()')
+  const rows = await query(
+    'SELECT COUNT(*) AS c FROM users WHERE role = 0 AND register_time >= CURDATE()'
+  )
   return rows[0].c
 }
 
-// 分页 + 关键字（道号/邮箱模糊）查询用户列表
+export async function countAdmins() {
+  const rows = await query('SELECT COUNT(*) AS c FROM users WHERE role = 1')
+  return rows[0].c
+}
+
+// 分页 + 关键字（道号/邮箱模糊）查询玩家列表；管理员(role=1)不纳入
 export async function listUsers({ page = 1, pageSize = 10, keyword = '' } = {}) {
   const p = Math.max(1, parseInt(page, 10) || 1)
   const size = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 10))
   const offset = (p - 1) * size
 
-  let where = ''
+  let where = 'WHERE role = 0'
   const params = []
   if (keyword) {
-    where = 'WHERE dao_name LIKE ? OR email LIKE ?'
+    where += ' AND (dao_name LIKE ? OR email LIKE ?)'
     const like = `%${keyword}%`
     params.push(like, like)
   }
@@ -89,7 +99,11 @@ export async function listUsers({ page = 1, pageSize = 10, keyword = '' } = {}) 
   return { list, total: totalRows[0].total, page: p, pageSize: size }
 }
 
+// 仅对玩家(role=0)启用/禁用，避免误改管理员
 export async function updateUserStatus(id, status) {
-  const result = await query('UPDATE users SET status = ? WHERE id = ?', [status, id])
+  const result = await query(
+    'UPDATE users SET status = ? WHERE id = ? AND role = 0',
+    [status, id]
+  )
   return result.affectedRows
 }

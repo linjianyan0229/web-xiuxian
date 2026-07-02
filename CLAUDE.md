@@ -46,10 +46,11 @@ npm run preview    # 预览构建产物
 - MySQL，连接参数全部来自 `node/.env`（见 `.env.example`）：`DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME`、`JWT_SECRET/JWT_EXPIRES_IN`。`.env` 已被 gitignore。
 - **自动初始化**：`node/src/config/db.js` 的 `initDatabase()` 在服务启动时执行——先创建数据库（`CREATE DATABASE IF NOT EXISTS`），再建表，最后创建连接池。`server.js` 会先 `await initDatabase()` 再 `app.listen`，连库失败则退出。
 - 建表 DDL 内联在 `db.js` 中。新增表时在此追加 `CREATE TABLE IF NOT EXISTS`，无独立迁移工具。
-- `users` 表字段：`id, dao_name(道号,唯一), email(唯一), password(bcrypt哈希), email_code(邮箱验证码), status(0禁用/1正常), register_time, login_time, access_token`。
-- `admins` 表（后台管理员，与游戏用户隔离）字段：`id, username(唯一), password, nickname, status, register_time, login_time, access_token`。
-- **默认管理员**：`initDatabase()` 中的 `seedDefaultAdmin()` 在 `admins` 表为空时生成一条管理员，账号/密码取自 `.env` 的 `ADMIN_USERNAME`/`ADMIN_PASSWORD`（默认 `admin` / `admin123456`）。幂等，已存在则跳过。
-- 数据访问集中在 `node/src/models/*Model.js`（原生 SQL + `query()` 封装），不使用 ORM。分页列表 `listUsers` 因 mysql2 对 LIMIT 占位符的限制，把已 clamp 的整数 `LIMIT/OFFSET` 直接内联，仅关键字用 `?` 占位。
+- **单表模型**：玩家和管理员同在 `users` 表，用 `role` 区分（0=玩家，1=管理员），没有独立的 admins 表。
+- `users` 表字段：`id, dao_name(道号,唯一), email(唯一), password(bcrypt哈希), email_code(邮箱验证码), role(0玩家/1管理员), status(0禁用/1正常), register_time, login_time, access_token`。
+- **默认管理员**：`initDatabase()` 中的 `seedDefaultAdmin()` 在 `users` 表无 `role=1` 记录时插入一条管理员（道号=`ADMIN_USERNAME`，邮箱=`ADMIN_EMAIL`，密码=`ADMIN_PASSWORD`，默认 `admin` / `admin@xiuxian.local` / `admin123456`）。幂等，已存在则跳过。管理员用道号或邮箱登录。
+- **迁移**：`ensureColumn()` 幂等补列（MySQL 无 `ADD COLUMN IF NOT EXISTS`），启动时给老 `users` 表补 `role` 列；并 `DROP TABLE IF EXISTS admins` 清理旧设计。新增字段照此模式在 `initDatabase()` 里加 `ensureColumn` 调用。
+- 数据访问集中在 `node/src/models/userModel.js`（原生 SQL + `query()` 封装），不使用 ORM。后台的玩家统计/列表/改状态都限定 `role=0`——管理员不出现在用户管理里，也无法被误禁用（`updateUserStatus` 带 `AND role=0`，改不到会返回 404）。分页 `listUsers` 因 mysql2 对 LIMIT 占位符的限制，把已 clamp 的整数 `LIMIT/OFFSET` 直接内联，仅关键字用 `?` 占位。
 
 ## 鉴权
 
@@ -57,16 +58,18 @@ npm run preview    # 预览构建产物
 - 受保护接口在路由上挂 `middleware/auth.js` 的 `authRequired`：校验 `Authorization: Bearer <token>` → 验签 → 查用户 → 挂 `req.user`（不含 password/email_code）。
 - 密码用 `utils/password.js`（bcryptjs）哈希与校验，明文密码绝不入库或返回。
 
-- 管理员令牌与用户令牌用同一 `JWT_SECRET` 签发，靠 payload 里的 `role: 'admin'` 区分；`middleware/adminAuth.js` 的 `adminAuthRequired` 校验 role 并查 `admins` 表。两套鉴权互不通用（普通用户令牌访问后台接口返回 403）。
+- **登录统一在一个入口**：玩家和管理员都走 `POST /api/auth/login`。认证成功后令牌 payload 带 `role`（`role=1` 签 `'admin'`，否则 `'user'`）。**认证与授权分离**：登录只认证身份，能否进后台由「受保护接口校验 role」决定，没有单独的后台登录接口。
+- 普通接口挂 `middleware/auth.js` 的 `authRequired`（校验 `Authorization: Bearer <token>` → 验签 → 查用户 → 挂 `req.user`，不含 password/email_code）。
+- 后台接口挂 `middleware/adminAuth.js` 的 `adminAuthRequired`：校验令牌 `role==='admin'`，并查 `users` 确认该行 `role=1`。玩家令牌访问后台接口返回 403。
+- 密码用 `utils/password.js`（bcryptjs）哈希与校验，明文密码绝不入库或返回。
 
 ### API 一览
 游戏用户：
-- `POST /api/auth/register` — `{ daoName, email, password }` → `{ token, user }`
-- `POST /api/auth/login` — `{ account, password }`（account 可为道号或邮箱）→ `{ token, user }`
+- `POST /api/auth/register` — `{ daoName, email, password }` → `{ token, user }`（新用户恒为玩家）
+- `POST /api/auth/login` — `{ account, password }`（account 可为道号或邮箱；管理员也用此接口登录）→ `{ token, user }`，`user.role` 决定前端跳向后台还是游戏
 - `GET /api/user/profile` — 需用户鉴权 → `{ user }`
 
-后台管理（除 login 外均需管理员鉴权）：
-- `POST /api/admin/login` — `{ username, password }` → `{ token, admin }`
+后台管理（均需管理员鉴权，即 role=admin 的令牌）：
 - `GET /api/admin/profile` → `{ admin }`
 - `GET /api/admin/dashboard` → `{ totalUsers, activeUsers, disabledUsers, newUsersToday, totalAdmins }`
 - `GET /api/admin/users?page&pageSize&keyword` → `{ list, total, page, pageSize }`
@@ -74,11 +77,10 @@ npm run preview    # 预览构建产物
 
 ## 前端结构
 
-- 路由 `src/router/index.js`：游戏端 `/login`、`/register`、`/home`；后台端 `/admin/login` 与 `/admin`（`AdminLayout` 布局 + 子路由 `dashboard`/`users`）。全局守卫按 localStorage 的 `token`（游戏）与 `adminToken`（后台）分别管控 `requiresAuth/guestOnly` 与 `requiresAdmin/adminGuestOnly`。
-- 两套登录态、两套 store、两套 axios 实例，键名隔离：
-  - 游戏端：`stores/auth.js` + `api/http.js`（baseURL `/api`，读 `token`）。
-  - 后台端：`stores/admin.js` + `api/adminHttp.js`（baseURL `/api/admin`，读 `adminToken`，401/403 时清理并跳 `/admin/login`）。
-- 后台页面在 `src/views/admin/`（`AdminLoginView`/`DashboardView`/`UsersView`），布局在 `src/layouts/AdminLayout.vue`（侧边栏导航 + 顶栏）。
+- **单一登录态**：整个前端只有一套 `token`/`user`（`stores/auth.js` + `api/http.js`，baseURL `/api`）。后台 API（`api/admin.js`）复用同一个 `http` 实例，不再有独立的 admin store/axios。`http` 响应拦截在 401 时清理登录态并跳 `/login`。
+- 路由 `src/router/index.js`：`/login`、`/register`、`/home`（游戏），`/admin`（`AdminLayout` + 子路由 `dashboard`/`users`）。**没有 `/admin/login`**——登录后 `LoginView` 按 `auth.user.role` 分流（管理员→`admin-dashboard`，玩家→`home`）。
+- 全局守卫按单一 `token` + `user.role` 管控：`requiresAuth` 无 token 跳 `login`；`requiresAdmin` 无 token 跳 `login`、非管理员跳 `home`；`guestOnly` 已登录按角色跳对应首页。
+- 后台页面在 `src/views/admin/`（`DashboardView`/`UsersView`），布局 `src/layouts/AdminLayout.vue`（侧边栏 + 顶栏，用 `useAuthStore` 取管理员信息与登出）。
 - 主题：`src/style.css` 用 CSS 变量定义配色，通过 `@media (prefers-color-scheme: dark)` 适配系统深/浅色；表单基元类（`.field/.btn/.form-error`）为全局样式，页面级样式用 SFC `scoped`。
 
 ## 架构要点

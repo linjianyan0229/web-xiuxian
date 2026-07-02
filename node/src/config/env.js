@@ -14,7 +14,9 @@ export const config = {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
   admin: {
+    // 管理员并入 users 表：defaultUsername 即其道号，用道号或邮箱登录
     defaultUsername: process.env.ADMIN_USERNAME || 'admin',
     defaultPassword: process.env.ADMIN_PASSWORD || 'admin123456',
+    defaultEmail: process.env.ADMIN_EMAIL || 'admin@xiuxian.local',
   },
 }

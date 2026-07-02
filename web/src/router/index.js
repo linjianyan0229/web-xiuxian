@@ -21,13 +21,7 @@ const routes = [
     meta: { requiresAuth: true },
   },
 
-  /* ---------- 后台管理 ---------- */
-  {
-    path: '/admin/login',
-    name: 'admin-login',
-    component: () => import('../views/admin/AdminLoginView.vue'),
-    meta: { adminGuestOnly: true },
-  },
+  /* ---------- 后台管理（登录统一走 /login，按 role 进入） ---------- */
   {
     path: '/admin',
     component: () => import('../layouts/AdminLayout.vue'),
@@ -53,22 +47,22 @@ const router = createRouter({
   routes,
 })
 
-// 路由守卫：分别管控游戏用户与后台管理员两套登录态
+// 路由守卫：单一登录态（token），后台准入由用户 role 决定
 router.beforeEach((to) => {
   const token = localStorage.getItem('token')
-  const adminToken = localStorage.getItem('adminToken')
+  const user = JSON.parse(localStorage.getItem('user') || 'null')
+  const isAdmin = user?.role === 1
 
   if (to.meta.requiresAuth && !token) {
     return { name: 'login' }
   }
   if (to.meta.guestOnly && token) {
-    return { name: 'home' }
+    // 已登录访问登录/注册页：管理员进后台，玩家进游戏
+    return isAdmin ? { name: 'admin-dashboard' } : { name: 'home' }
   }
-  if (to.meta.requiresAdmin && !adminToken) {
-    return { name: 'admin-login' }
-  }
-  if (to.meta.adminGuestOnly && adminToken) {
-    return { name: 'admin-dashboard' }
+  if (to.meta.requiresAdmin) {
+    if (!token) return { name: 'login' }
+    if (!isAdmin) return { name: 'home' } // 已登录但非管理员，挡回游戏首页
   }
 })
 
