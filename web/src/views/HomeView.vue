@@ -3,11 +3,16 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiLogout } from '../api/auth.js'
-import { apiGameRankings } from '../api/game.js'
+import { apiGameRankings, apiSignInStatus } from '../api/game.js'
+import SignInModal from '../components/SignInModal.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
 const hint = ref('')
+
+// 每日签到
+const signStatus = ref(null)
+const signVisible = ref(false)
 
 // 排行榜（境界/在线/死亡，各前十）
 const ranks = ref(null)
@@ -89,6 +94,33 @@ async function onLogout() {
   router.replace({ name: 'login' })
 }
 
+// 手动打开签到弹窗（先刷新一次状态）
+async function openSign() {
+  try {
+    signStatus.value = await apiSignInStatus()
+  } catch {
+    /* 拉取失败则用已有状态兜底 */
+  }
+  signVisible.value = true
+}
+
+// 签到成功：即时更新对应资源（修为/道韵/道法）与状态（转为冷却态）
+function onSigned(payload) {
+  if (auth.user) {
+    auth.user.cultivation = payload.cultivation
+    auth.user.dao_yun = payload.dao_yun
+    auth.user.dao_law = payload.dao_law
+  }
+  if (signStatus.value) {
+    signStatus.value = {
+      ...signStatus.value,
+      canSignIn: false,
+      lastSignTime: payload.lastSignTime,
+      nextSignTime: payload.nextSignTime,
+    }
+  }
+}
+
 onMounted(async () => {
   try {
     await auth.fetchProfile()
@@ -101,6 +133,13 @@ onMounted(async () => {
     ranks.value = await apiGameRankings()
   } catch {
     /* 榜单拉取失败不影响主界面 */
+  }
+  try {
+    signStatus.value = await apiSignInStatus()
+    // 满足条件（功能开启且满24小时）时自动弹出签到窗口
+    if (signStatus.value.canSignIn) signVisible.value = true
+  } catch {
+    /* 签到状态拉取失败不影响主界面 */
   }
 })
 </script>
@@ -119,6 +158,14 @@ onMounted(async () => {
         </span>
       </div>
       <div class="top-actions">
+        <button
+          class="icon-btn sign-btn"
+          :class="{ ready: signStatus?.canSignIn }"
+          @click="openSign"
+          title="每日签到"
+        >
+          签
+        </button>
         <button class="icon-btn" @click="soon('设置')" title="设置">⚙</button>
         <button class="icon-btn" @click="soon('公告')" title="公告">✉</button>
         <button class="leave" @click="onLogout">离山</button>
@@ -241,6 +288,14 @@ onMounted(async () => {
         </section>
       </aside>
     </div>
+
+    <!-- 每日签到弹窗 -->
+    <SignInModal
+      :visible="signVisible"
+      :status="signStatus"
+      @close="signVisible = false"
+      @signed="onSigned"
+    />
   </div>
 </template>
 
@@ -332,6 +387,19 @@ onMounted(async () => {
   cursor: pointer;
 }
 .icon-btn:hover { color: var(--gold); }
+.sign-btn {
+  font-family: inherit;
+  font-weight: 700;
+}
+.sign-btn.ready {
+  color: var(--gold);
+  border-color: var(--gold);
+  animation: signPulse 1.6s ease-in-out infinite;
+}
+@keyframes signPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184, 147, 63, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(184, 147, 63, 0.2); }
+}
 .leave {
   padding: 7px 16px;
   font-family: inherit;

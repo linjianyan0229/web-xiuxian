@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
   dao_law       BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '道法领悟',
   register_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
+  last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
   access_token  VARCHAR(512)    DEFAULT NULL             COMMENT '登录令牌',
   PRIMARY KEY (id),
   UNIQUE KEY uk_dao_name (dao_name),
@@ -44,7 +45,9 @@ CREATE TABLE IF NOT EXISTS realms (
   name                   VARCHAR(48)     NOT NULL              COMMENT '完整境界名',
   next_realm             VARCHAR(48)     NOT NULL DEFAULT ''   COMMENT '下一境界名',
   requirement_type       VARCHAR(32)     NOT NULL DEFAULT ''   COMMENT '晋级要求类型',
-  advance_exp            BIGINT UNSIGNED NOT NULL DEFAULT 0    COMMENT '晋级所需经验',
+  advance_exp            BIGINT UNSIGNED NOT NULL DEFAULT 0    COMMENT '晋级所需经验(即该境界圆满修为)',
+  sign_in_min_percent    DECIMAL(4,2)    NOT NULL DEFAULT 1.00 COMMENT '每日签到奖励百分比区间下限(占圆满修为/道韵, 0.1~3)',
+  sign_in_max_percent    DECIMAL(4,2)    NOT NULL DEFAULT 2.00 COMMENT '每日签到奖励百分比区间上限(占圆满修为/道韵, 0.1~3)',
   dao_yun_required       INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '晋级所需道韵',
   dao_law_required       INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '晋级所需道法领悟',
   tribulation_type       VARCHAR(32)     NOT NULL DEFAULT ''   COMMENT '雷劫类型',
@@ -59,6 +62,40 @@ CREATE TABLE IF NOT EXISTS realms (
   KEY idx_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='境界表';
 `
+
+// 建表语句：系统配置表（键值对，后台「系统配置列表」用；如签到功能开关等）
+const CREATE_SYSTEM_CONFIGS_TABLE = `
+CREATE TABLE IF NOT EXISTS system_configs (
+  config_key   VARCHAR(64)  NOT NULL              COMMENT '配置键',
+  config_value VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '配置值',
+  label        VARCHAR(64)  NOT NULL DEFAULT ''   COMMENT '中文名称',
+  description  VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '说明',
+  value_type   VARCHAR(16)  NOT NULL DEFAULT 'text' COMMENT '值类型: bool/text/number',
+  updated_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统配置表';
+`
+
+// 内置系统配置项（幂等：仅在键不存在时插入，不覆盖管理员已改的值）
+const DEFAULT_SYSTEM_CONFIGS = [
+  {
+    key: 'sign_in_enabled',
+    value: '1',
+    label: '每日签到',
+    description: '开启后玩家进入首页满24小时可签到领取修为；关闭则不再弹出签到。',
+    valueType: 'bool',
+  },
+]
+
+async function seedSystemConfigs() {
+  for (const c of DEFAULT_SYSTEM_CONFIGS) {
+    await pool.query(
+      `INSERT IGNORE INTO system_configs (config_key, config_value, label, description, value_type)
+       VALUES (?, ?, ?, ?, ?)`,
+      [c.key, c.value, c.label, c.description, c.valueType]
+    )
+  }
+}
 
 // 首次启动从数据文件导入境界（幂等：表非空则跳过）
 async function seedRealms() {
@@ -110,6 +147,18 @@ async function ensureColumn(table, column, definition) {
   }
 }
 
+// 幂等删列：列存在时删除（用于淘汰旧字段）
+async function dropColumn(table, column) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS c FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+    [config.db.name, table, column]
+  )
+  if (rows[0].c > 0) {
+    await pool.query(`ALTER TABLE ${table} DROP COLUMN ${column}`)
+  }
+}
+
 // 首次启动生成默认管理员（作为 users 表中 role=1 的一行，幂等：已存在则跳过）
 async function seedDefaultAdmin() {
   const [rows] = await pool.query('SELECT COUNT(*) AS c FROM users WHERE role = 1')
@@ -152,6 +201,7 @@ export async function initDatabase() {
   // 建表
   await pool.query(CREATE_USERS_TABLE)
   await pool.query(CREATE_REALMS_TABLE)
+  await pool.query(CREATE_SYSTEM_CONFIGS_TABLE)
 
   // 迁移（老库补列）
   await ensureColumn(
@@ -194,14 +244,32 @@ export async function initDatabase() {
     'dao_law',
     "dao_law BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '道法领悟' AFTER dao_yun"
   )
+  await ensureColumn(
+    'users',
+    'last_sign_time',
+    "last_sign_time DATETIME DEFAULT NULL COMMENT '上次每日签到时间' AFTER login_time"
+  )
+  await ensureColumn(
+    'realms',
+    'sign_in_min_percent',
+    "sign_in_min_percent DECIMAL(4,2) NOT NULL DEFAULT 1.00 COMMENT '每日签到奖励百分比区间下限(占圆满修为/道韵, 0.1~3)' AFTER advance_exp"
+  )
+  await ensureColumn(
+    'realms',
+    'sign_in_max_percent',
+    "sign_in_max_percent DECIMAL(4,2) NOT NULL DEFAULT 2.00 COMMENT '每日签到奖励百分比区间上限(占圆满修为/道韵, 0.1~3)' AFTER sign_in_min_percent"
+  )
+  // 淘汰旧的单一百分比字段（早期版本）
+  await dropColumn('realms', 'sign_in_percent')
   // 清理旧设计：管理员已并入 users 表
   await pool.query('DROP TABLE IF EXISTS admins')
   // 重启后在线态清零，避免残留（真实在线由登录/登出维护）
   await pool.query('UPDATE users SET is_online = 0')
 
-  // 播种境界数据 + 默认管理员
+  // 播种境界数据 + 默认管理员 + 系统配置
   await seedRealms()
   await seedDefaultAdmin()
+  await seedSystemConfigs()
 
   console.log(`数据库已就绪: ${name} (${host}:${port})`)
   return pool

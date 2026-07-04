@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { apiAdminUsers, apiSetUserStatus } from '../../api/admin.js'
+import { apiAdminUsers, apiSetUserStatus, apiDeleteUser, apiRealms } from '../../api/admin.js'
+import UserFormModal from '../../components/UserFormModal.vue'
 
 const state = reactive({
   list: [],
@@ -12,6 +13,44 @@ const keyword = ref('')
 const loading = ref(false)
 const error = ref('')
 const busyId = ref(0)
+
+// 增/改 弹窗 + 删除确认
+const realms = ref([])
+const formVisible = ref(false)
+const formMode = ref('add')
+const formUser = ref(null)
+const confirmRow = ref(null)
+const deleting = ref(false)
+
+function openAdd() {
+  formMode.value = 'add'
+  formUser.value = null
+  formVisible.value = true
+}
+function openEdit(row) {
+  formMode.value = 'edit'
+  formUser.value = row
+  formVisible.value = true
+}
+function onSaved() {
+  formVisible.value = false
+  load()
+}
+async function doDelete() {
+  if (!confirmRow.value) return
+  deleting.value = true
+  try {
+    await apiDeleteUser(confirmRow.value.id)
+    // 删除后若当前页仅剩这一条且非首页，回退一页
+    if (state.list.length === 1 && state.page > 1) state.page -= 1
+    confirmRow.value = null
+    load()
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    deleting.value = false
+  }
+}
 
 function totalPages() {
   return Math.max(1, Math.ceil(state.total / state.pageSize))
@@ -64,21 +103,32 @@ function fmt(t) {
   return t ? String(t).replace('T', ' ').slice(0, 19) : '—'
 }
 
-onMounted(load)
+onMounted(async () => {
+  load()
+  try {
+    const r = await apiRealms()
+    realms.value = r.list
+  } catch {
+    /* 境界列表拉取失败不影响用户管理主流程 */
+  }
+})
 </script>
 
 <template>
   <section>
     <div class="head">
       <h2 class="page-title">用户管理</h2>
-      <div class="search">
-        <input
-          v-model="keyword"
-          type="text"
-          placeholder="搜索道号 / 邮箱"
-          @keyup.enter="onSearch"
-        />
-        <button class="btn-sm" @click="onSearch">搜索</button>
+      <div class="tools">
+        <div class="search">
+          <input
+            v-model="keyword"
+            type="text"
+            placeholder="搜索道号 / 邮箱"
+            @keyup.enter="onSearch"
+          />
+          <button class="btn-sm" @click="onSearch">搜索</button>
+        </div>
+        <button class="btn-sm add" @click="openAdd">＋ 添加用户</button>
       </div>
     </div>
 
@@ -112,14 +162,18 @@ onMounted(load)
             <td class="muted">{{ fmt(row.register_time) }}</td>
             <td class="muted">{{ fmt(row.login_time) }}</td>
             <td class="ta-r">
-              <button
-                class="btn-sm"
-                :class="row.status === 1 ? 'danger' : ''"
-                :disabled="busyId === row.id"
-                @click="toggleStatus(row)"
-              >
-                {{ row.status === 1 ? '禁用' : '启用' }}
-              </button>
+              <div class="actions">
+                <button class="btn-sm ghost" @click="openEdit(row)">编辑</button>
+                <button
+                  class="btn-sm"
+                  :class="row.status === 1 ? 'danger' : ''"
+                  :disabled="busyId === row.id"
+                  @click="toggleStatus(row)"
+                >
+                  {{ row.status === 1 ? '禁用' : '启用' }}
+                </button>
+                <button class="btn-sm danger" @click="confirmRow = row">删除</button>
+              </div>
             </td>
           </tr>
           <tr v-if="!loading && state.list.length === 0">
@@ -135,6 +189,33 @@ onMounted(load)
         <button class="btn-sm" :disabled="state.page <= 1" @click="go(-1)">上一页</button>
         <span class="pageno">{{ state.page }} / {{ totalPages() }}</span>
         <button class="btn-sm" :disabled="state.page >= totalPages()" @click="go(1)">下一页</button>
+      </div>
+    </div>
+
+    <!-- 添加 / 编辑 用户 -->
+    <UserFormModal
+      :visible="formVisible"
+      :mode="formMode"
+      :user="formUser"
+      :realms="realms"
+      @close="formVisible = false"
+      @saved="onSaved"
+    />
+
+    <!-- 删除确认 -->
+    <div v-if="confirmRow" class="mask" @click.self="confirmRow = null">
+      <div class="confirm">
+        <h3>删除用户</h3>
+        <p>
+          确定删除道号「<b>{{ confirmRow.dao_name }}</b>」（ID {{ confirmRow.id }}）？<br />
+          此操作不可恢复。
+        </p>
+        <div class="cf-actions">
+          <button class="btn-sm ghost" @click="confirmRow = null">取消</button>
+          <button class="btn-sm danger" :disabled="deleting" @click="doDelete">
+            {{ deleting ? '删除中…' : '确认删除' }}
+          </button>
+        </div>
       </div>
     </div>
   </section>
@@ -156,9 +237,24 @@ onMounted(load)
   color: var(--text-h);
   letter-spacing: 1px;
 }
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .search {
   display: flex;
   gap: 8px;
+}
+.btn-sm.add {
+  background: var(--accent);
+  white-space: nowrap;
+}
+.actions {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
 }
 .search input {
   padding: 8px 12px;
@@ -256,9 +352,55 @@ td.muted {
 .btn-sm.danger:hover {
   filter: brightness(1.08);
 }
+.btn-sm.ghost {
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+.btn-sm.ghost:hover {
+  color: var(--text-h);
+  border-color: var(--muted);
+  background: transparent;
+}
 .btn-sm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 删除确认弹窗 */
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 22, 26, 0.5);
+  backdrop-filter: blur(2px);
+  padding: 20px;
+}
+.confirm {
+  width: min(400px, 100%);
+  padding: 22px 24px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.confirm h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  color: var(--text-h);
+}
+.confirm p {
+  margin: 0 0 18px;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.7;
+}
+.cf-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .pager {

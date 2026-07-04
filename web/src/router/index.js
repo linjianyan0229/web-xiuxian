@@ -43,6 +43,11 @@ const routes = [
         name: 'admin-realms',
         component: () => import('../views/admin/RealmsView.vue'),
       },
+      {
+        path: 'configs',
+        name: 'admin-configs',
+        component: () => import('../views/admin/ConfigView.vue'),
+      },
     ],
   },
 ]

@@ -9,9 +9,7 @@ import {
 } from '../models/userModel.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signToken } from '../utils/jwt.js'
-
-const DAO_NAME_RE = /^[一-龥A-Za-z0-9_]{2,16}$/
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+import { DAO_NAME_RE, EMAIL_RE, MIN_PASSWORD_LEN } from '../utils/validators.js'
 
 // 注册
 export async function register(req, res, next) {
@@ -27,8 +25,8 @@ export async function register(req, res, next) {
     if (!EMAIL_RE.test(email)) {
       return res.status(400).json({ error: '邮箱格式不正确' })
     }
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: '密码至少6位' })
+    if (String(password).length < MIN_PASSWORD_LEN) {
+      return res.status(400).json({ error: `密码至少${MIN_PASSWORD_LEN}位` })
     }
 
     if (await findByDaoName(daoName)) {

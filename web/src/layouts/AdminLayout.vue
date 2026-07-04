@@ -42,6 +42,9 @@ async function onLogout() {
         <RouterLink :to="{ name: 'admin-realms' }">
           <span class="ico">☯</span> 境界列表
         </RouterLink>
+        <RouterLink :to="{ name: 'admin-configs' }">
+          <span class="ico">⚙</span> 系统配置
+        </RouterLink>
       </nav>
     </aside>
 

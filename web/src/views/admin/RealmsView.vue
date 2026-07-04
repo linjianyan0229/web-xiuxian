@@ -1,17 +1,30 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiRealms } from '../../api/admin.js'
+import RealmFormModal from '../../components/RealmFormModal.vue'
 
 const list = ref([])
 const total = ref(0)
 const loading = ref(false)
 const err = ref('')
 
+const editVisible = ref(false)
+const editing = ref(null)
+
 function fmt(n) {
   return typeof n === 'number' ? n.toLocaleString('en-US') : n
 }
 
-onMounted(async () => {
+function openEdit(row) {
+  editing.value = row
+  editVisible.value = true
+}
+async function onSaved() {
+  editVisible.value = false
+  await load()
+}
+
+async function load() {
   loading.value = true
   try {
     const res = await apiRealms()
@@ -22,7 +35,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(load)
 </script>
 
 <template>
@@ -55,6 +70,7 @@ onMounted(async () => {
             <th class="ta-r">攻击</th>
             <th class="ta-r">防御</th>
             <th class="ta-r">神识</th>
+            <th class="ta-c">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -77,13 +93,23 @@ onMounted(async () => {
             <td class="ta-r">{{ fmt(r.attack) }}</td>
             <td class="ta-r">{{ fmt(r.defense) }}</td>
             <td class="ta-r">{{ fmt(r.spirit) }}</td>
+            <td class="ta-c">
+              <button class="edit" @click="openEdit(r)">编辑</button>
+            </td>
           </tr>
           <tr v-if="!loading && list.length === 0">
-            <td colspan="16" class="empty">暂无数据</td>
+            <td colspan="17" class="empty">暂无数据</td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <RealmFormModal
+      :visible="editVisible"
+      :realm="editing"
+      @close="editVisible = false"
+      @saved="onSaved"
+    />
   </section>
 </template>
 
@@ -153,6 +179,22 @@ td.muted {
 .ta-r {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.ta-c {
+  text-align: center;
+}
+.edit {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.edit:hover {
+  background: var(--accent-h);
 }
 td.danger {
   color: var(--danger);

@@ -4,7 +4,7 @@ import { query } from '../config/db.js'
 const USER_SELECT = `
   SELECT u.id, u.dao_name, u.email, u.role, u.status,
          u.realm_id, r.name AS realm_name,
-         u.ling_shi, u.cultivation, u.dao_yun, u.dao_law,
+         u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.death_count,
          r.hp, r.attack, r.defense, r.spirit,
          u.register_time, u.login_time
   FROM users u
@@ -35,6 +35,12 @@ export async function findPublicById(id) {
   return rows[0] || null
 }
 
+// 原始整行（含 role/status/password），后台编辑前用于存在性与角色校验
+export async function findRawById(id) {
+  const rows = await query('SELECT * FROM users WHERE id = ? LIMIT 1', [id])
+  return rows[0] || null
+}
+
 export async function createUser({ daoName, email, password, emailCode = null }) {
   const result = await query(
     `INSERT INTO users (dao_name, email, password, email_code, role, status)
@@ -55,6 +61,40 @@ export async function updateLoginState(id, accessToken) {
 // 设置在线状态（登出置 0）
 export async function setOnline(id, online) {
   await query('UPDATE users SET is_online = ? WHERE id = ?', [online ? 1 : 0, id])
+}
+
+/* ---------- 每日签到 ---------- */
+
+// 签到相关信息：当前境界的晋级方式与基准值(圆满修为/圆满道韵)、签到百分比区间、
+// 上次签到时间，及是否已满24小时。奖励类型由前端/控制器按 requirement_type 判定。
+export async function findSignInInfo(id) {
+  const rows = await query(
+    `SELECT u.id, u.cultivation, u.dao_yun, u.dao_law, u.last_sign_time, u.realm_id,
+            r.name AS realm_name, r.requirement_type,
+            r.advance_exp, r.dao_yun_required,
+            r.sign_in_min_percent, r.sign_in_max_percent,
+            (u.last_sign_time IS NULL OR u.last_sign_time <= NOW() - INTERVAL 24 HOUR) AS can_sign
+     FROM users u LEFT JOIN realms r ON r.id = u.realm_id
+     WHERE u.id = ? LIMIT 1`,
+    [id]
+  )
+  return rows[0] || null
+}
+
+// 原子签到：仅当从未签到或距上次签到已满 24 小时时，给对应资源加奖励并记录签到时间；
+// field 限定为 cultivation/dao_yun/dao_law（白名单）。返回受影响行数（0=尚未到时间，可防并发重复）
+const SIGN_IN_FIELDS = { cultivation: 'cultivation', dao_yun: 'dao_yun', dao_law: 'dao_law' }
+export async function applySignIn(id, field, reward) {
+  const col = SIGN_IN_FIELDS[field]
+  if (!col) throw new Error(`非法的签到奖励字段: ${field}`)
+  const result = await query(
+    `UPDATE users
+        SET ${col} = ${col} + ?, last_sign_time = NOW()
+      WHERE id = ?
+        AND (last_sign_time IS NULL OR last_sign_time <= NOW() - INTERVAL 24 HOUR)`,
+    [reward, id]
+  )
+  return result.affectedRows
 }
 
 /* ---------- 排行榜（均只统计玩家 role=0）---------- */
@@ -152,5 +192,42 @@ export async function updateUserStatus(id, status) {
     'UPDATE users SET status = ? WHERE id = ? AND role = 0',
     [status, id]
   )
+  return result.affectedRows
+}
+
+// 管理员新建玩家（恒为 role=0；password 需已哈希）
+export async function adminCreateUser({ daoName, email, password, status = 1, realmId = 1 }) {
+  const result = await query(
+    `INSERT INTO users (dao_name, email, password, role, status, realm_id)
+     VALUES (?, ?, ?, 0, ?, ?)`,
+    [daoName, email, password, status, realmId]
+  )
+  return result.insertId
+}
+
+// 后台可更新的玩家字段白名单（password 为已哈希值）
+const USER_UPDATABLE = [
+  'dao_name', 'email', 'password', 'status', 'realm_id',
+  'ling_shi', 'cultivation', 'dao_yun', 'dao_law', 'death_count',
+]
+
+// 管理员更新玩家：按白名单动态拼 SET；仅作用于 role=0。
+// 返回受影响行数（值未变时可能为 0，存在性/角色由调用方先行校验）
+export async function updateUser(id, fields) {
+  const keys = Object.keys(fields).filter((k) => USER_UPDATABLE.includes(k))
+  if (keys.length === 0) return 0
+  const setSql = keys.map((k) => `${k} = ?`).join(', ')
+  const params = keys.map((k) => fields[k])
+  params.push(id)
+  const result = await query(
+    `UPDATE users SET ${setSql} WHERE id = ? AND role = 0`,
+    params
+  )
+  return result.affectedRows
+}
+
+// 删除玩家（仅 role=0，避免误删管理员）
+export async function deleteUser(id) {
+  const result = await query('DELETE FROM users WHERE id = ? AND role = 0', [id])
   return result.affectedRows
 }

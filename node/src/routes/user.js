@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
 import { getProfile, rankings } from '../controllers/userController.js'
+import { getSignInStatus, doSignIn } from '../controllers/signInController.js'
 
 const router = Router()
 
@@ -8,5 +9,8 @@ const router = Router()
 router.get('/profile', authRequired, getProfile)
 // 需鉴权：排行榜（境界/在线/死亡，各前十）
 router.get('/rankings', authRequired, rankings)
+// 需鉴权：每日签到 —— 查询状态 / 执行签到
+router.get('/sign-in', authRequired, getSignInStatus)
+router.post('/sign-in', authRequired, doSignIn)
 
 export default router
