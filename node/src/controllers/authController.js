@@ -10,6 +10,8 @@ import {
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signToken } from '../utils/jwt.js'
 import { DAO_NAME_RE, EMAIL_RE, MIN_PASSWORD_LEN } from '../utils/validators.js'
+import { rollComprehension } from '../utils/comprehension.js'
+import { addLog } from '../models/playerLogModel.js'
 
 // 注册
 export async function register(req, res, next) {
@@ -37,13 +39,15 @@ export async function register(req, res, next) {
     }
 
     const hashed = await hashPassword(password)
-    const id = await createUser({ daoName, email, password: hashed })
+    // 初始悟性：99.5% 落在 1~10，0.5% 天纵奇才直接 15
+    const id = await createUser({ daoName, email, password: hashed, comprehension: rollComprehension() })
 
     // 注册成功即签发令牌，前端可直接进入（新用户恒为玩家）
     const token = signToken({ id, daoName, role: 'user' })
     await updateLoginState(id, token)
     const user = await findPublicById(id)
 
+    await addLog(id, 'register', `于凡尘立下道号「${daoName}」，踏上仙途`)
     res.status(201).json({ token, user })
   } catch (err) {
     next(err)
@@ -80,6 +84,10 @@ export async function login(req, res, next) {
     await updateLoginState(record.id, token)
     const user = await findPublicById(record.id)
 
+    // 管理员登录不写修行日志（日志属玩家叙事）
+    if (record.role !== 1) {
+      await addLog(record.id, 'login', `登临此界，境界【${user?.realm_name || '凡人'}】`)
+    }
     res.json({ token, user })
   } catch (err) {
     next(err)
@@ -90,6 +98,9 @@ export async function login(req, res, next) {
 export async function logout(req, res, next) {
   try {
     await setOnline(req.user.id, 0)
+    if (req.user.role !== 1) {
+      await addLog(req.user.id, 'logout', '暂离此界，闭关去了')
+    }
     res.json({ ok: true })
   } catch (err) {
     next(err)

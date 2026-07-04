@@ -1,10 +1,11 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiDashboard, apiRankings } from '../../api/admin.js'
+import { useToast } from '../../composables/toast.js'
 
+const toast = useToast()
 const stats = ref(null)
 const ranks = ref(null)
-const error = ref('')
 
 const cards = [
   { key: 'totalUsers', label: '总用户', accent: true },
@@ -27,7 +28,7 @@ onMounted(async () => {
     stats.value = s
     ranks.value = r
   } catch (e) {
-    error.value = e.message
+    toast.error(e.message)
   }
 })
 </script>
@@ -35,7 +36,6 @@ onMounted(async () => {
 <template>
   <section>
     <h2 class="page-title">仪表盘</h2>
-    <p v-if="error" class="err">{{ error }}</p>
 
     <div class="grid" v-if="stats">
       <div v-for="c in cards" :key="c.key" class="stat" :class="{ hi: c.accent }">

@@ -24,6 +24,7 @@ import {
 import { listConfigs, updateConfig } from '../models/systemConfigModel.js'
 import { hashPassword } from '../utils/password.js'
 import { DAO_NAME_RE, EMAIL_RE, MIN_PASSWORD_LEN } from '../utils/validators.js'
+import { rollComprehension, clampComprehension } from '../utils/comprehension.js'
 
 // 仪表盘统计
 export async function dashboard(req, res, next) {
@@ -212,12 +213,14 @@ export async function createUser(req, res, next) {
     if (await findByEmail(email)) return res.status(409).json({ error: '该邮箱已被注册' })
 
     const hashed = await hashPassword(password)
+    // 后台建号与注册同规则随机初始悟性
     const id = await adminCreateUser({
       daoName,
       email,
       password: hashed,
       status: Number(status) === 0 ? 0 : 1,
       realmId: rid,
+      comprehension: rollComprehension(),
     })
     const user = await findPublicById(id)
     res.status(201).json({ user })
@@ -284,6 +287,13 @@ export async function editUser(req, res, next) {
         if (!p.ok) return res.status(400).json({ error: `${col} 必须为非负整数` })
         fields[col] = p.value
       }
+    }
+
+    // 悟性（0~100 的整数百分比）
+    if (body.comprehension !== undefined) {
+      const c = clampComprehension(body.comprehension)
+      if (c === null) return res.status(400).json({ error: '悟性必须为 0~100 的数字' })
+      fields.comprehension = c
     }
 
     // 可选重置密码（留空则不改）

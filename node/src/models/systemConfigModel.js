@@ -32,3 +32,11 @@ export async function getBoolConfig(key, fallback = false) {
   if (!row) return fallback
   return row.config_value === '1' || row.config_value === 'true'
 }
+
+// 便捷：读取数值型配置（缺失或非法时用 fallback）
+export async function getNumberConfig(key, fallback = 0) {
+  const row = await getConfig(key)
+  if (!row) return fallback
+  const n = Number(row.config_value)
+  return Number.isFinite(n) ? n : fallback
+}

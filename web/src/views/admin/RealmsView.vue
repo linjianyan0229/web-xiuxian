@@ -2,11 +2,12 @@
 import { onMounted, ref } from 'vue'
 import { apiRealms } from '../../api/admin.js'
 import RealmFormModal from '../../components/RealmFormModal.vue'
+import { useToast } from '../../composables/toast.js'
 
+const toast = useToast()
 const list = ref([])
 const total = ref(0)
 const loading = ref(false)
-const err = ref('')
 
 const editVisible = ref(false)
 const editing = ref(null)
@@ -31,7 +32,7 @@ async function load() {
     list.value = res.list
     total.value = res.total
   } catch (e) {
-    err.value = e.message
+    toast.error(e.message)
   } finally {
     loading.value = false
   }
@@ -47,8 +48,6 @@ onMounted(load)
       <span class="count">共 {{ total }} 个境界</span>
     </div>
     <p class="tip">凡人 → 圣人，共 {{ total }} 阶。数值为该境界基础属性，晋级要求指向下一境界。</p>
-
-    <p v-if="err" class="err">{{ err }}</p>
 
     <div class="table-wrap">
       <table>

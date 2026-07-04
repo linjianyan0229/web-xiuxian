@@ -16,6 +16,13 @@ export const apiRankings = () => http.get('/admin/rankings')
 // 系统配置列表
 export const apiConfigs = () => http.get('/admin/configs')
 export const apiUpdateConfig = (key, value) => http.patch(`/admin/configs/${key}`, { value })
+
+// 丹药管理
+export const apiAdminPills = (params) => http.get('/admin/pills', { params })
+export const apiPillMeta = () => http.get('/admin/pills/meta')
+export const apiUpdatePill = (id, payload) => http.put(`/admin/pills/${id}`, payload)
+export const apiUpdatePillGrade = (id, grade, payload) =>
+  http.put(`/admin/pills/${id}/grades/${grade}`, payload)
 // 更新某境界的每日签到奖励百分比区间
 export const apiUpdateRealmSignIn = (id, minPercent, maxPercent) =>
   http.patch(`/admin/realms/${id}/sign-in`, { minPercent, maxPercent })

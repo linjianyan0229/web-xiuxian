@@ -1,7 +1,9 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
-import { getProfile, rankings } from '../controllers/userController.js'
+import { getProfile, rankings, getLogs } from '../controllers/userController.js'
 import { getSignInStatus, doSignIn } from '../controllers/signInController.js'
+import { getCultivateStatus, doCultivate } from '../controllers/cultivateController.js'
+import { getBreakthroughStatus, doBreakthrough } from '../controllers/breakthroughController.js'
 
 const router = Router()
 
@@ -12,5 +14,13 @@ router.get('/rankings', authRequired, rankings)
 // 需鉴权：每日签到 —— 查询状态 / 执行签到
 router.get('/sign-in', authRequired, getSignInStatus)
 router.post('/sign-in', authRequired, doSignIn)
+// 需鉴权：修炼 —— 查询状态 / 执行修炼（收益=当前境界圆满修为的5%，冷却见系统配置）
+router.get('/cultivate', authRequired, getCultivateStatus)
+router.post('/cultivate', authRequired, doCultivate)
+// 需鉴权：境界突破 —— 查询条件与雷劫信息 / 执行突破
+router.get('/breakthrough', authRequired, getBreakthroughStatus)
+router.post('/breakthrough', authRequired, doBreakthrough)
+// 需鉴权：修行日志（最近 N 条）
+router.get('/logs', authRequired, getLogs)
 
 export default router

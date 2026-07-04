@@ -44,6 +44,11 @@ const routes = [
         component: () => import('../views/admin/RealmsView.vue'),
       },
       {
+        path: 'pills',
+        name: 'admin-pills',
+        component: () => import('../views/admin/PillsView.vue'),
+      },
+      {
         path: 'configs',
         name: 'admin-configs',
         component: () => import('../views/admin/ConfigView.vue'),

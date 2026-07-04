@@ -1,17 +1,17 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiConfigs, apiUpdateConfig, apiRealms, apiUpdateRealmSignIn } from '../../api/admin.js'
+import { useToast } from '../../composables/toast.js'
 
+const toast = useToast()
 const configs = ref([])
 const realms = ref([]) // { id, name, type, label, base, fixed, minP, maxP }
 const loading = ref(false)
-const err = ref('')
 
 // 单行反馈状态
 const configSavingKey = ref('')
 const savingId = ref(0)
 const savedId = ref(0)
-const rowErr = ref('')
 
 function fmt(n) {
   return typeof n === 'number' ? n.toLocaleString('en-US') : n
@@ -45,7 +45,6 @@ function previewText(row) {
 
 async function load() {
   loading.value = true
-  err.value = ''
   try {
     const [cfg, rlm] = await Promise.all([apiConfigs(), apiRealms()])
     configs.value = cfg.list
@@ -63,9 +62,28 @@ async function load() {
       }
     })
   } catch (e) {
-    err.value = e.message
+    toast.error(e.message)
   } finally {
     loading.value = false
+  }
+}
+
+// 保存数值型配置（如修炼间隔秒数）
+async function saveNumberConfig(cfg) {
+  const n = Number(cfg.config_value)
+  if (!Number.isFinite(n) || n < 0) {
+    toast.error(`【${cfg.label || cfg.config_key}】必须为非负数字`)
+    return
+  }
+  configSavingKey.value = cfg.config_key
+  try {
+    await apiUpdateConfig(cfg.config_key, String(Math.floor(n)))
+    cfg.config_value = String(Math.floor(n))
+    toast.success(`【${cfg.label || cfg.config_key}】已保存`)
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    configSavingKey.value = ''
   }
 }
 
@@ -77,7 +95,7 @@ async function toggleConfig(cfg) {
     await apiUpdateConfig(cfg.config_key, next)
     cfg.config_value = next
   } catch (e) {
-    err.value = e.message
+    toast.error(e.message)
   } finally {
     configSavingKey.value = ''
   }
@@ -85,12 +103,11 @@ async function toggleConfig(cfg) {
 
 // 保存某境界的签到百分比区间
 async function saveRealm(row) {
-  rowErr.value = ''
   savedId.value = 0
   let lo = Number(row.minP)
   let hi = Number(row.maxP)
   if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
-    rowErr.value = `【${row.name}】百分比无效`
+    toast.error(`【${row.name}】百分比无效`)
     return
   }
   // 前端先收敛到 [0.1, 3]，并保证下限≤上限
@@ -109,7 +126,7 @@ async function saveRealm(row) {
       if (savedId.value === row.id) savedId.value = 0
     }, 1500)
   } catch (e) {
-    rowErr.value = `【${row.name}】保存失败：${e.message}`
+    toast.error(`【${row.name}】保存失败：${e.message}`)
   } finally {
     savingId.value = 0
   }
@@ -121,8 +138,7 @@ onMounted(load)
 <template>
   <section>
     <h2 class="page-title">系统配置</h2>
-    <p class="tip">管理游戏内的系统级开关与数值。当前已接入「每日签到」功能。</p>
-    <p v-if="err" class="err">{{ err }}</p>
+    <p class="tip">管理游戏内的系统级开关与数值。当前已接入「每日签到」「修炼间隔」。</p>
 
     <!-- 系统配置列表 -->
     <div class="panel">
@@ -154,6 +170,23 @@ onMounted(load)
                   <span class="slider"></span>
                   <span class="switch-txt">{{ c.config_value === '1' ? '开启' : '关闭' }}</span>
                 </label>
+                <span v-else-if="c.value_type === 'number'" class="num-edit">
+                  <input
+                    v-model="c.config_value"
+                    type="number"
+                    min="0"
+                    class="pct num"
+                    :disabled="configSavingKey === c.config_key"
+                    @keyup.enter="saveNumberConfig(c)"
+                  />
+                  <button
+                    class="save"
+                    :disabled="configSavingKey === c.config_key"
+                    @click="saveNumberConfig(c)"
+                  >
+                    {{ configSavingKey === c.config_key ? '保存中…' : '保存' }}
+                  </button>
+                </span>
                 <span v-else class="muted">{{ c.config_value }}</span>
               </td>
             </tr>
@@ -177,8 +210,6 @@ onMounted(load)
           >道法档</b
         >（道法领悟/终点）每次固定 +1 道法。
       </p>
-      <p v-if="rowErr" class="err">{{ rowErr }}</p>
-
       <div class="table-wrap scroll">
         <table>
           <thead>
@@ -440,6 +471,14 @@ td.gold {
 .pct:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.num-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.num-edit .num {
+  width: 90px;
 }
 .save {
   padding: 6px 14px;

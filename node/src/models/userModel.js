@@ -3,8 +3,8 @@ import { query } from '../config/db.js'
 // 对外暴露的用户视图（不含 password / email_code），关联出当前境界名
 const USER_SELECT = `
   SELECT u.id, u.dao_name, u.email, u.role, u.status,
-         u.realm_id, r.name AS realm_name,
-         u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.death_count,
+         u.realm_id, r.name AS realm_name, r.advance_exp,
+         u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.comprehension, u.death_count,
          r.hp, r.attack, r.defense, r.spirit,
          u.register_time, u.login_time
   FROM users u
@@ -41,11 +41,11 @@ export async function findRawById(id) {
   return rows[0] || null
 }
 
-export async function createUser({ daoName, email, password, emailCode = null }) {
+export async function createUser({ daoName, email, password, emailCode = null, comprehension = 1 }) {
   const result = await query(
-    `INSERT INTO users (dao_name, email, password, email_code, role, status)
-     VALUES (?, ?, ?, ?, 0, 1)`,
-    [daoName, email, password, emailCode]
+    `INSERT INTO users (dao_name, email, password, email_code, role, status, comprehension)
+     VALUES (?, ?, ?, ?, 0, 1, ?)`,
+    [daoName, email, password, emailCode, comprehension]
   )
   return result.insertId
 }
@@ -93,6 +93,86 @@ export async function applySignIn(id, field, reward) {
       WHERE id = ?
         AND (last_sign_time IS NULL OR last_sign_time <= NOW() - INTERVAL 24 HOUR)`,
     [reward, id]
+  )
+  return result.affectedRows
+}
+
+/* ---------- 修炼 ---------- */
+
+// 修炼相关信息：当前境界圆满修为(advance_exp)、上次修炼时间及是否已过冷却（冷却秒数来自系统配置）
+export async function findCultivateInfo(id, cooldownSeconds) {
+  const cd = Math.max(0, Math.floor(Number(cooldownSeconds) || 0))
+  const rows = await query(
+    `SELECT u.id, u.cultivation, u.last_cultivate_time, u.realm_id,
+            r.name AS realm_name, r.advance_exp,
+            (u.last_cultivate_time IS NULL OR u.last_cultivate_time <= NOW() - INTERVAL ? SECOND) AS can_cultivate
+     FROM users u LEFT JOIN realms r ON r.id = u.realm_id
+     WHERE u.id = ? LIMIT 1`,
+    [cd, id]
+  )
+  return rows[0] || null
+}
+
+// 原子修炼：仅当冷却已过时加修为并记录修炼时间；返回受影响行数（0=冷却未到，可防并发连点）
+export async function applyCultivate(id, gain, cooldownSeconds) {
+  const cd = Math.max(0, Math.floor(Number(cooldownSeconds) || 0))
+  const result = await query(
+    `UPDATE users
+        SET cultivation = cultivation + ?, last_cultivate_time = NOW()
+      WHERE id = ?
+        AND (last_cultivate_time IS NULL OR last_cultivate_time <= NOW() - INTERVAL ? SECOND)`,
+    [gain, id, cd]
+  )
+  return result.affectedRows
+}
+
+/* ---------- 境界突破 ---------- */
+
+// 突破相关信息：玩家资源 + 当前境界行（该行即描述晋级到 next_realm 的要求）
+export async function findBreakthroughInfo(id) {
+  const rows = await query(
+    `SELECT u.id, u.realm_id, u.cultivation, u.dao_yun, u.dao_law, u.death_count,
+            r.name AS realm_name, r.requirement_type, r.advance_exp,
+            r.dao_yun_required, r.dao_law_required,
+            r.tribulation_type, r.tribulation_death_rate, r.next_realm
+     FROM users u LEFT JOIN realms r ON r.id = u.realm_id
+     WHERE u.id = ? LIMIT 1`,
+    [id]
+  )
+  return rows[0] || null
+}
+
+// 突破资源列白名单（防注入）
+const BREAKTHROUGH_COST_FIELDS = { cultivation: 'cultivation', dao_yun: 'dao_yun' }
+
+// 突破成功：境界+1 并扣除晋级资源；WHERE 带境界与资源守卫，防并发重复突破。
+// costField 为 null 时（道法型）不扣资源。返回受影响行数（0=状态已变化）
+export async function applyBreakthroughSuccess(id, fromRealmId, costField, costAmount) {
+  if (costField) {
+    const col = BREAKTHROUGH_COST_FIELDS[costField]
+    if (!col) throw new Error(`非法的突破消耗字段: ${costField}`)
+    const result = await query(
+      `UPDATE users SET realm_id = realm_id + 1, ${col} = ${col} - ?
+       WHERE id = ? AND realm_id = ? AND ${col} >= ?`,
+      [costAmount, id, fromRealmId, costAmount]
+    )
+    return result.affectedRows
+  }
+  const result = await query(
+    'UPDATE users SET realm_id = realm_id + 1 WHERE id = ? AND realm_id = ?',
+    [id, fromRealmId]
+  )
+  return result.affectedRows
+}
+
+// 突破身陨：死亡次数+1，对应晋级资源折损一半（境界不变）。返回受影响行数
+export async function applyBreakthroughDeath(id, fromRealmId, lossField) {
+  const col = BREAKTHROUGH_COST_FIELDS[lossField]
+  if (!col) throw new Error(`非法的陨落损失字段: ${lossField}`)
+  const result = await query(
+    `UPDATE users SET death_count = death_count + 1, ${col} = FLOOR(${col} / 2)
+     WHERE id = ? AND realm_id = ?`,
+    [id, fromRealmId]
   )
   return result.affectedRows
 }
@@ -196,11 +276,11 @@ export async function updateUserStatus(id, status) {
 }
 
 // 管理员新建玩家（恒为 role=0；password 需已哈希）
-export async function adminCreateUser({ daoName, email, password, status = 1, realmId = 1 }) {
+export async function adminCreateUser({ daoName, email, password, status = 1, realmId = 1, comprehension = 1 }) {
   const result = await query(
-    `INSERT INTO users (dao_name, email, password, role, status, realm_id)
-     VALUES (?, ?, ?, 0, ?, ?)`,
-    [daoName, email, password, status, realmId]
+    `INSERT INTO users (dao_name, email, password, role, status, realm_id, comprehension)
+     VALUES (?, ?, ?, 0, ?, ?, ?)`,
+    [daoName, email, password, status, realmId, comprehension]
   )
   return result.insertId
 }
@@ -208,7 +288,7 @@ export async function adminCreateUser({ daoName, email, password, status = 1, re
 // 后台可更新的玩家字段白名单（password 为已哈希值）
 const USER_UPDATABLE = [
   'dao_name', 'email', 'password', 'status', 'realm_id',
-  'ling_shi', 'cultivation', 'dao_yun', 'dao_law', 'death_count',
+  'ling_shi', 'cultivation', 'dao_yun', 'dao_law', 'comprehension', 'death_count',
 ]
 
 // 管理员更新玩家：按白名单动态拼 SET；仅作用于 role=0。
@@ -226,8 +306,11 @@ export async function updateUser(id, fields) {
   return result.affectedRows
 }
 
-// 删除玩家（仅 role=0，避免误删管理员）
+// 删除玩家（仅 role=0，避免误删管理员）；连带清理其修行日志（无外键，手动级联）
 export async function deleteUser(id) {
   const result = await query('DELETE FROM users WHERE id = ? AND role = 0', [id])
+  if (result.affectedRows > 0) {
+    await query('DELETE FROM player_logs WHERE user_id = ?', [id])
+  }
   return result.affectedRows
 }

@@ -23,6 +23,7 @@ const form = reactive({
   cultivation: 0,
   daoYun: 0,
   daoLaw: 0,
+  comprehension: 1,
   deathCount: 0,
 })
 
@@ -40,6 +41,7 @@ function resetFrom() {
     form.cultivation = Number(u.cultivation) || 0
     form.daoYun = Number(u.dao_yun) || 0
     form.daoLaw = Number(u.dao_law) || 0
+    form.comprehension = Number(u.comprehension) || 0
     form.deathCount = Number(u.death_count) || 0
   } else {
     form.daoName = ''
@@ -51,6 +53,7 @@ function resetFrom() {
     form.cultivation = 0
     form.daoYun = 0
     form.daoLaw = 0
+    form.comprehension = 1
     form.deathCount = 0
   }
 }
@@ -92,6 +95,7 @@ async function submit() {
         cultivation: form.cultivation,
         daoYun: form.daoYun,
         daoLaw: form.daoLaw,
+        comprehension: form.comprehension,
         deathCount: form.deathCount,
       }
       if (form.password) payload.password = form.password
@@ -147,6 +151,7 @@ async function submit() {
             <label class="fld"><span>修为</span><input v-model.number="form.cultivation" type="number" min="0" /></label>
             <label class="fld"><span>道韵</span><input v-model.number="form.daoYun" type="number" min="0" /></label>
             <label class="fld"><span>道法</span><input v-model.number="form.daoLaw" type="number" min="0" /></label>
+            <label class="fld"><span>悟性（%，上限100）</span><input v-model.number="form.comprehension" type="number" min="0" max="100" /></label>
             <label class="fld"><span>死亡次数</span><input v-model.number="form.deathCount" type="number" min="0" /></label>
           </template>
         </div>

@@ -2,7 +2,9 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiAdminUsers, apiSetUserStatus, apiDeleteUser, apiRealms } from '../../api/admin.js'
 import UserFormModal from '../../components/UserFormModal.vue'
+import { useToast } from '../../composables/toast.js'
 
+const toast = useToast()
 const state = reactive({
   list: [],
   total: 0,
@@ -11,7 +13,6 @@ const state = reactive({
 })
 const keyword = ref('')
 const loading = ref(false)
-const error = ref('')
 const busyId = ref(0)
 
 // 增/改 弹窗 + 删除确认
@@ -46,7 +47,7 @@ async function doDelete() {
     confirmRow.value = null
     load()
   } catch (e) {
-    error.value = e.message
+    toast.error(e.message)
   } finally {
     deleting.value = false
   }
@@ -58,7 +59,6 @@ function totalPages() {
 
 async function load() {
   loading.value = true
-  error.value = ''
   try {
     const res = await apiAdminUsers({
       page: state.page,
@@ -68,7 +68,7 @@ async function load() {
     state.list = res.list
     state.total = res.total
   } catch (e) {
-    error.value = e.message
+    toast.error(e.message)
   } finally {
     loading.value = false
   }
@@ -93,7 +93,7 @@ async function toggleStatus(row) {
     const { user } = await apiSetUserStatus(row.id, next)
     row.status = user.status
   } catch (e) {
-    error.value = e.message
+    toast.error(e.message)
   } finally {
     busyId.value = 0
   }
@@ -132,8 +132,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <p v-if="error" class="err">{{ error }}</p>
-
     <div class="table-wrap">
       <table>
         <thead>
@@ -142,6 +140,7 @@ onMounted(async () => {
             <th>道号</th>
             <th>邮箱</th>
             <th>境界</th>
+            <th>悟性</th>
             <th>状态</th>
             <th>注册时间</th>
             <th>上次登录</th>
@@ -154,6 +153,7 @@ onMounted(async () => {
             <td class="strong">{{ row.dao_name }}</td>
             <td>{{ row.email }}</td>
             <td><span class="realm">{{ row.realm_name || '—' }}</span></td>
+            <td>{{ Number(row.comprehension) || 0 }}%</td>
             <td>
               <span class="tag" :class="row.status === 1 ? 'ok' : 'off'">
                 {{ row.status === 1 ? '正常' : '禁用' }}
@@ -177,7 +177,7 @@ onMounted(async () => {
             </td>
           </tr>
           <tr v-if="!loading && state.list.length === 0">
-            <td colspan="8" class="empty">暂无数据</td>
+            <td colspan="9" class="empty">暂无数据</td>
           </tr>
         </tbody>
       </table>
@@ -423,9 +423,5 @@ td.muted {
 .pageno {
   font-size: 13px;
   color: var(--text-h);
-}
-.err {
-  color: var(--danger);
-  margin: 0 0 12px;
 }
 </style>

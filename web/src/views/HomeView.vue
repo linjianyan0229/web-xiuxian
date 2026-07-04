@@ -1,18 +1,29 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiLogout } from '../api/auth.js'
-import { apiGameRankings, apiSignInStatus } from '../api/game.js'
+import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs } from '../api/game.js'
 import SignInModal from '../components/SignInModal.vue'
+import BreakthroughModal from '../components/BreakthroughModal.vue'
+import { useToast } from '../composables/toast.js'
 
 const router = useRouter()
 const auth = useAuthStore()
-const hint = ref('')
+const toast = useToast()
 
 // 每日签到
 const signStatus = ref(null)
 const signVisible = ref(false)
+
+// 修炼（状态 + 冷却倒计时）
+const cult = ref(null)
+const cultBusy = ref(false)
+const nowTick = ref(Date.now())
+let tickTimer = null
+
+// 境界突破弹窗
+const btVisible = ref(false)
 
 // 排行榜（境界/在线/死亡，各前十）
 const ranks = ref(null)
@@ -50,6 +61,7 @@ const resources = computed(() => {
     { label: '精神力', value: fmtCn(u.spirit) },
     { label: '道韵', value: fmtCn(u.dao_yun) },
     { label: '道法', value: fmtCn(u.dao_law) },
+    { label: '悟性', value: `${Number(u.comprehension) || 0}%` },
   ]
 })
 // 常用功能
@@ -74,18 +86,92 @@ function fmt(t) {
 
 const realmName = computed(() => auth.user?.realm_name || '凡人')
 
-// 修行日志：用真实账号数据 + 少量叙事
-const logs = computed(() => {
-  if (!auth.user) return []
-  return [
-    { time: fmt(auth.user.login_time).slice(11), text: `道友 ${auth.user.dao_name} 登临此界，境界【${realmName.value}】。` },
-    { time: fmt(auth.user.register_time).slice(11), text: `你于凡尘立下道号，踏上仙途。`, hl: true },
-    { time: '—', text: `静待修炼、宗门、历炼诸般机缘开启。` },
-  ]
-})
+// 修行日志：真实操作记录（注册/登录/签到/修炼等，后端 player_logs 表）
+const logRows = ref([])
+async function loadLogs() {
+  try {
+    const r = await apiPlayerLogs()
+    logRows.value = r.list
+  } catch {
+    /* 日志拉取失败不影响主界面 */
+  }
+}
+const logs = computed(() =>
+  logRows.value.map((l) => ({
+    id: l.id,
+    time: fmt(l.created_time).slice(5, 16),
+    text: l.content,
+    hl: ['register', 'sign_in', 'breakthrough'].includes(l.type),
+  }))
+)
+
+// 突破结束（晋级或身陨）：玩家境界/资源/属性已变，全量刷新
+async function onBreakthroughDone() {
+  try {
+    await auth.fetchProfile()
+  } catch {
+    /* 刷新失败保持现状 */
+  }
+  try {
+    cult.value = await apiCultivateStatus()
+  } catch {
+    /* 同上 */
+  }
+  loadLogs()
+  try {
+    ranks.value = await apiGameRankings()
+  } catch {
+    /* 榜单刷新失败不影响 */
+  }
+}
 
 function soon(name) {
-  hint.value = `【${name}】尚在开辟，敬请期待`
+  toast.info(`【${name}】尚在开辟，敬请期待`)
+}
+
+// 修炼冷却剩余秒数（nowTick 每秒刷新驱动倒计时）
+const cultRemain = computed(() => {
+  if (!cult.value?.nextCultivateTime) return 0
+  const diff = new Date(cult.value.nextCultivateTime).getTime() - nowTick.value
+  return diff > 0 ? Math.ceil(diff / 1000) : 0
+})
+
+// 当前境界修为进度（advance_exp=0 的境界靠道法晋级，进度视为圆满）
+const cultProgress = computed(() => {
+  const u = auth.user || {}
+  const total = Number(u.advance_exp) || 0
+  if (total <= 0) return 100
+  return Math.min(100, ((Number(u.cultivation) || 0) / total) * 100)
+})
+
+// 修为已圆满（服务端 isFull 为准，签到等本地加修为后也即时判断）
+const cultFull = computed(() => {
+  if (cult.value?.isFull) return true
+  const total = Number(cult.value?.advanceExp) || 0
+  return total > 0 && (Number(auth.user?.cultivation) || 0) >= total
+})
+
+// 执行修炼：结算修为并进入调息冷却
+async function doCultivate() {
+  if (cultBusy.value || cultRemain.value > 0 || !cult.value?.gain) return
+  cultBusy.value = true
+  try {
+    const r = await apiCultivate()
+    cult.value = r
+    if (auth.user) auth.user.cultivation = r.cultivation
+    toast.success(`修炼有成，修为 +${fmtCn(r.gained)}`)
+    loadLogs()
+  } catch (e) {
+    toast.error(e.message)
+    // 冷却未到/并发抢先等情况，以服务端状态为准
+    try {
+      cult.value = await apiCultivateStatus()
+    } catch {
+      /* 状态刷新失败保持原样 */
+    }
+  } finally {
+    cultBusy.value = false
+  }
 }
 
 async function onLogout() {
@@ -119,6 +205,7 @@ function onSigned(payload) {
       nextSignTime: payload.nextSignTime,
     }
   }
+  loadLogs()
 }
 
 onMounted(async () => {
@@ -141,6 +228,19 @@ onMounted(async () => {
   } catch {
     /* 签到状态拉取失败不影响主界面 */
   }
+  try {
+    cult.value = await apiCultivateStatus()
+  } catch {
+    /* 修炼状态拉取失败不影响主界面 */
+  }
+  loadLogs()
+  tickTimer = setInterval(() => {
+    nowTick.value = Date.now()
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (tickTimer) clearInterval(tickTimer)
 })
 </script>
 
@@ -171,8 +271,6 @@ onMounted(async () => {
         <button class="leave" @click="onLogout">离山</button>
       </div>
     </header>
-
-    <p v-if="hint" class="hint-bar" @click="hint = ''">{{ hint }}（点击关闭）</p>
 
     <div class="body" v-if="auth.user">
       <!-- 左侧功能栏 -->
@@ -213,10 +311,27 @@ onMounted(async () => {
         <section class="card realm">
           <h3 class="panel-title">境界</h3>
           <div class="realm-name">{{ realmName }}</div>
-          <div class="cultivate-info">修为：{{ fmtCn(auth.user.cultivation) }}</div>
-          <div class="bar"><span :style="{ width: '2%' }"></span></div>
-          <div class="cultivate-sub">每 5 秒自动修为：+0（修炼系统待开启）</div>
-          <button class="gold-btn" @click="soon('修炼')">开始修炼</button>
+          <div class="cultivate-info">
+            修为：{{ fmtCn(auth.user.cultivation) }}<template v-if="Number(auth.user.advance_exp) > 0"> / {{ fmtCn(auth.user.advance_exp) }}</template>
+          </div>
+          <div class="bar"><span :style="{ width: cultProgress + '%' }"></span></div>
+          <div class="cultivate-sub">
+            <template v-if="!cult">修炼准备中…</template>
+            <template v-else-if="cultFull">修为已臻圆满，天时已至，可尝试突破境界</template>
+            <template v-else-if="cult.gain > 0">每次修炼 +{{ fmtCn(cult.gain) }} 修为 · 调息 {{ cult.cooldownSeconds }} 秒</template>
+            <template v-else>此境已非打坐可进，需另觅道法机缘</template>
+          </div>
+          <button v-if="cultFull" class="gold-btn breakthrough" @click="btVisible = true">
+            突 破
+          </button>
+          <button
+            v-else
+            class="gold-btn"
+            :disabled="!cult || cult.gain <= 0 || cultRemain > 0 || cultBusy"
+            @click="doCultivate"
+          >
+            {{ cultRemain > 0 ? `调息中 ${cultRemain}s` : cultBusy ? '修炼中…' : '开始修炼' }}
+          </button>
         </section>
 
         <section class="card buffs">
@@ -280,9 +395,12 @@ onMounted(async () => {
         <section class="card">
           <h3 class="panel-title">修行日志</h3>
           <ul class="log">
-            <li v-for="(l, i) in logs" :key="i">
+            <li v-for="l in logs" :key="l.id">
               <span class="log-text" :class="{ hl: l.hl }">{{ l.text }}</span>
               <span class="log-time">{{ l.time }}</span>
+            </li>
+            <li v-if="logs.length === 0">
+              <span class="log-text">尚无修行记录，且去打坐修炼一番。</span>
             </li>
           </ul>
         </section>
@@ -295,6 +413,13 @@ onMounted(async () => {
       :status="signStatus"
       @close="signVisible = false"
       @signed="onSigned"
+    />
+
+    <!-- 境界突破 -->
+    <BreakthroughModal
+      :visible="btVisible"
+      @close="btVisible = false"
+      @done="onBreakthroughDone"
     />
   </div>
 </template>
@@ -411,15 +536,6 @@ onMounted(async () => {
   cursor: pointer;
 }
 .leave:hover { color: var(--gold); border-color: var(--gold); }
-
-.hint-bar {
-  margin: 0;
-  padding: 8px 26px;
-  font-size: 13px;
-  color: var(--gold);
-  background: rgba(184, 147, 63, 0.1);
-  cursor: pointer;
-}
 
 /* 主体：左栏 + 三列，整体锁定在一屏内 */
 .body {
@@ -617,7 +733,19 @@ onMounted(async () => {
   cursor: pointer;
   box-shadow: 0 6px 16px -8px rgba(184, 147, 63, 0.8);
 }
-.gold-btn:hover { filter: brightness(1.05); }
+.gold-btn:hover:not(:disabled) { filter: brightness(1.05); }
+.gold-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+/* 突破按钮：赤金色调，与日常修炼区分 */
+.gold-btn.breakthrough {
+  color: #4a2012;
+  background: linear-gradient(180deg, #f0c39c, #d4794b);
+  border-color: rgba(184, 105, 63, 0.6);
+  box-shadow: 0 6px 16px -8px rgba(184, 105, 63, 0.8);
+}
 
 .buff-grid {
   display: grid;

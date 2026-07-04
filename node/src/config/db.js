@@ -26,9 +26,11 @@ CREATE TABLE IF NOT EXISTS users (
   cultivation   BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '修为',
   dao_yun       BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '道韵',
   dao_law       BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '道法领悟',
+  comprehension TINYINT UNSIGNED NOT NULL DEFAULT 1      COMMENT '悟性(%), 上限100, 注册时随机生成',
   register_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
   last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
+  last_cultivate_time DATETIME  DEFAULT NULL             COMMENT '上次修炼时间(冷却用)',
   access_token  VARCHAR(512)    DEFAULT NULL             COMMENT '登录令牌',
   PRIMARY KEY (id),
   UNIQUE KEY uk_dao_name (dao_name),
@@ -63,6 +65,50 @@ CREATE TABLE IF NOT EXISTS realms (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='境界表';
 `
 
+// 建表语句：丹药表（一行一种丹药，id 来自数据文件 pills.json，如 pill_fanren_cultivation）
+const CREATE_PILLS_TABLE = `
+CREATE TABLE IF NOT EXISTS pills (
+  id             VARCHAR(64)  NOT NULL              COMMENT '丹药ID(数据文件)',
+  name           VARCHAR(64)  NOT NULL              COMMENT '丹药名',
+  realm          VARCHAR(32)  NOT NULL DEFAULT ''   COMMENT '所属大境界',
+  realm_rank     INT UNSIGNED NOT NULL DEFAULT 0    COMMENT '大境界序号',
+  category       VARCHAR(32)  NOT NULL DEFAULT ''   COMMENT '类型标识(如 cultivation_gain)',
+  category_name  VARCHAR(32)  NOT NULL DEFAULT ''   COMMENT '类型名称(如 修为丹)',
+  effect_mode    VARCHAR(64)  NOT NULL DEFAULT ''   COMMENT '效果组合类型',
+  default_target VARCHAR(16)  NOT NULL DEFAULT 'self' COMMENT '默认作用目标: self/enemy',
+  note           VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '备注',
+  PRIMARY KEY (id),
+  KEY idx_realm_rank (realm_rank),
+  KEY idx_category (category)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='丹药表';
+`
+
+// 建表语句：丹药品质表（每种丹药 凡/灵/道 三档，效果列表存 JSON）
+const CREATE_PILL_GRADES_TABLE = `
+CREATE TABLE IF NOT EXISTS pill_grades (
+  pill_id    VARCHAR(64)  NOT NULL              COMMENT '丹药ID(pills.id)',
+  grade      VARCHAR(8)   NOT NULL              COMMENT '品质: fan/ling/dao',
+  grade_name VARCHAR(8)   NOT NULL DEFAULT ''   COMMENT '品质名: 凡/灵/道',
+  item_name  VARCHAR(64)  NOT NULL DEFAULT ''   COMMENT '成品名(如 凡品凡人修为丹)',
+  effects    JSON         NOT NULL              COMMENT '效果列表(target/type/value/duration/hours/polarity)',
+  summary    VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '效果摘要',
+  PRIMARY KEY (pill_id, grade)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='丹药品质表';
+`
+
+// 建表语句：修行日志表（记录玩家每次操作：注册/登录/签到/修炼等，前台首页「修行日志」展示）
+const CREATE_PLAYER_LOGS_TABLE = `
+CREATE TABLE IF NOT EXISTS player_logs (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '日志ID',
+  user_id      BIGINT UNSIGNED NOT NULL              COMMENT '玩家ID(users.id)',
+  type         VARCHAR(24)     NOT NULL DEFAULT ''   COMMENT '操作类型: register/login/logout/sign_in/cultivate...',
+  content      VARCHAR(255)    NOT NULL              COMMENT '日志内容(叙事文本)',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发生时间',
+  PRIMARY KEY (id),
+  KEY idx_user_time (user_id, created_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='修行日志表';
+`
+
 // 建表语句：系统配置表（键值对，后台「系统配置列表」用；如签到功能开关等）
 const CREATE_SYSTEM_CONFIGS_TABLE = `
 CREATE TABLE IF NOT EXISTS system_configs (
@@ -84,6 +130,13 @@ const DEFAULT_SYSTEM_CONFIGS = [
     label: '每日签到',
     description: '开启后玩家进入首页满24小时可签到领取修为；关闭则不再弹出签到。',
     valueType: 'bool',
+  },
+  {
+    key: 'cultivate_cooldown_seconds',
+    value: '60',
+    label: '修炼间隔(秒)',
+    description: '每次修炼后的调息冷却时长，单位秒。单次修炼收益为当前境界圆满修为(advance_exp)的5%。',
+    valueType: 'number',
   },
 ]
 
@@ -133,6 +186,47 @@ async function seedRealms() {
     [values]
   )
   console.log(`已导入境界数据 ${data.length} 条`)
+}
+
+// 首次启动从数据文件导入丹药（幂等：表非空则跳过；数据文件顶层含 version/rules 等元信息，取 .pills）
+async function seedPills() {
+  const [rows] = await pool.query('SELECT COUNT(*) AS c FROM pills')
+  if (rows[0].c > 0) return
+
+  const raw = await readFile(join(__dirname, '../data/pills.json'), 'utf8')
+  const pills = JSON.parse(raw).pills
+  const pillValues = pills.map((p) => [
+    p.id,
+    p.name,
+    p.realm || '',
+    p.realmRank || 0,
+    p.category || '',
+    p.categoryName || '',
+    p.effectMode || '',
+    p.defaultTarget || 'self',
+    p.notes || '',
+  ])
+  const gradeValues = pills.flatMap((p) =>
+    (p.grades || []).map((g) => [
+      p.id,
+      g.grade,
+      g.gradeName || '',
+      g.itemName || '',
+      JSON.stringify(g.effects || []),
+      g.summary || '',
+    ])
+  )
+  await pool.query(
+    `INSERT INTO pills
+      (id, name, realm, realm_rank, category, category_name, effect_mode, default_target, note)
+     VALUES ?`,
+    [pillValues]
+  )
+  await pool.query(
+    `INSERT INTO pill_grades (pill_id, grade, grade_name, item_name, effects, summary) VALUES ?`,
+    [gradeValues]
+  )
+  console.log(`已导入丹药数据 ${pills.length} 种（品质物品 ${gradeValues.length} 件）`)
 }
 
 // 幂等补列：老库已有 users 表但缺某列时补上（MySQL 不支持 ADD COLUMN IF NOT EXISTS）
@@ -201,6 +295,9 @@ export async function initDatabase() {
   // 建表
   await pool.query(CREATE_USERS_TABLE)
   await pool.query(CREATE_REALMS_TABLE)
+  await pool.query(CREATE_PILLS_TABLE)
+  await pool.query(CREATE_PILL_GRADES_TABLE)
+  await pool.query(CREATE_PLAYER_LOGS_TABLE)
   await pool.query(CREATE_SYSTEM_CONFIGS_TABLE)
 
   // 迁移（老库补列）
@@ -246,8 +343,18 @@ export async function initDatabase() {
   )
   await ensureColumn(
     'users',
+    'comprehension',
+    "comprehension TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '悟性(%), 上限100, 注册时随机生成' AFTER dao_law"
+  )
+  await ensureColumn(
+    'users',
     'last_sign_time',
     "last_sign_time DATETIME DEFAULT NULL COMMENT '上次每日签到时间' AFTER login_time"
+  )
+  await ensureColumn(
+    'users',
+    'last_cultivate_time',
+    "last_cultivate_time DATETIME DEFAULT NULL COMMENT '上次修炼时间(冷却用)' AFTER last_sign_time"
   )
   await ensureColumn(
     'realms',
@@ -266,8 +373,9 @@ export async function initDatabase() {
   // 重启后在线态清零，避免残留（真实在线由登录/登出维护）
   await pool.query('UPDATE users SET is_online = 0')
 
-  // 播种境界数据 + 默认管理员 + 系统配置
+  // 播种境界数据 + 丹药数据 + 默认管理员 + 系统配置
   await seedRealms()
+  await seedPills()
   await seedDefaultAdmin()
   await seedSystemConfigs()
 
