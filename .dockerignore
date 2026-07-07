@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.env
+**/*.log
+node/uploads
+.git
+.gitignore
+计划反馈
+资源文件
+
