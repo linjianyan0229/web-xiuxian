@@ -1,5 +1,6 @@
 import {
   rankByRealm, rankOnlineByRealm, rankByDeath, findPublicById, findBreakthroughInfo,
+  touchHeartbeat,
 } from '../models/userModel.js'
 import { listLogs } from '../models/playerLogModel.js'
 import { findTodayStat } from '../models/userDailyStatModel.js'
@@ -53,6 +54,24 @@ export async function getTodayStats(req, res, next) {
       cultivationGained: Number(stat.cultivation_gained) || 0,
       breakthroughSuccessPercent,
     })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// 心跳：前台登录期间每 15 秒上报一次（携带上一跳实测往返延迟），刷新最近活跃时间；
+// 在线榜按 last_active_time / ping_ms 展示网络状态（流畅/一般/迟缓/掉线）
+export async function heartbeat(req, res, next) {
+  try {
+    // 首跳无实测延迟会传 null——先判空再转数字（Number(null)===0，直接转会把首跳误存成 0ms）
+    const raw = req.body?.pingMs
+    let pingMs = null
+    if (raw != null && raw !== '') {
+      const n = Number(raw)
+      if (Number.isFinite(n)) pingMs = Math.min(60000, Math.max(0, Math.round(n)))
+    }
+    await touchHeartbeat(req.user.id, pingMs)
+    res.json({ ok: true })
   } catch (err) {
     next(err)
   }

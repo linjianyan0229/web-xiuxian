@@ -15,6 +15,12 @@ const routes = [
     meta: { guestOnly: true },
   },
   {
+    path: '/reset',
+    name: 'reset',
+    component: () => import('../views/ResetPasswordView.vue'),
+    meta: { guestOnly: true },
+  },
+  {
     path: '/home',
     name: 'home',
     component: () => import('../views/HomeView.vue'),

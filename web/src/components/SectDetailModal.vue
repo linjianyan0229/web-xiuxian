@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue'
 import { apiSectDetail } from '../api/game.js'
 import UserAvatar from './UserAvatar.vue'
+import { fmtDateTime } from '../utils/datetime.js'
 import dongfuImg from '../../image/dongfu.webp'
 
 const props = defineProps({
@@ -34,7 +35,7 @@ watch(
 )
 
 function fmt(t) {
-  return t ? String(t).replace('T', ' ').slice(0, 19) : '—'
+  return fmtDateTime(t)
 }
 </script>
 

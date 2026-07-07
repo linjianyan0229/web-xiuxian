@@ -48,3 +48,6 @@ export const apiSects = (params) => http.get('/user/sects', { params })
 export const apiSectMeta = () => http.get('/user/sects/meta')
 export const apiSectDetail = (id) => http.get(`/user/sects/${id}`)
 export const apiSectCreate = (payload) => http.post('/user/sects', payload)
+
+// 心跳：登录期间每 15 秒上报一次（pingMs 为上一跳实测往返延迟，在线榜网络状态数据源）
+export const apiHeartbeat = (pingMs) => http.post('/user/heartbeat', { pingMs })

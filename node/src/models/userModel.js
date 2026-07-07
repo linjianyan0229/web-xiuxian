@@ -1,15 +1,21 @@
 import { query } from '../config/db.js'
 import { disbandSectsLedBy } from './sectModel.js'
 
-// 对外暴露的用户视图（不含 password / email_code），关联出当前境界名
+// 对外暴露的用户视图（不含 password / email_code），关联出当前境界名与宗门名；
+// dao_yun/dao_law_unlocked：境界是否已达道韵/道法相关阶段（按境界表首个含该要求的境界动态判定），
+// 前台资源栏与详细属性弹窗据此隐藏未解锁的道韵/道法
 const USER_SELECT = `
   SELECT u.id, u.dao_name, u.email, u.role, u.status, u.avatar, u.gender, u.sect_id,
+         s.name AS sect_name,
          u.realm_id, r.name AS realm_name, r.advance_exp,
          u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.comprehension, u.death_count,
          r.hp, r.attack, r.defense, r.spirit,
+         (u.realm_id >= (SELECT MIN(id) FROM realms WHERE requirement_type LIKE '%道韵%')) AS dao_yun_unlocked,
+         (u.realm_id >= (SELECT MIN(id) FROM realms WHERE requirement_type LIKE '%道法%')) AS dao_law_unlocked,
          u.register_time, u.login_time
   FROM users u
   LEFT JOIN realms r ON r.id = u.realm_id
+  LEFT JOIN sects s ON s.id = u.sect_id
 `
 
 export async function findByEmail(email) {
@@ -42,20 +48,38 @@ export async function findRawById(id) {
   return rows[0] || null
 }
 
-export async function createUser({ daoName, email, password, emailCode = null, comprehension = 1, gender = 1 }) {
+export async function createUser({ daoName, email, password, comprehension = 1, gender = 1 }) {
   const result = await query(
-    `INSERT INTO users (dao_name, email, password, email_code, role, status, comprehension, gender)
-     VALUES (?, ?, ?, ?, 0, 1, ?, ?)`,
-    [daoName, email, password, emailCode, comprehension, gender]
+    `INSERT INTO users (dao_name, email, password, role, status, comprehension, gender)
+     VALUES (?, ?, ?, 0, 1, ?, ?)`,
+    [daoName, email, password, comprehension, gender]
   )
   return result.insertId
 }
 
-// 记录本次登录：更新 token、登录时间，并置为在线
+// 重置密码：换哈希并吊销现有登录（access_token 清空 + 置离线），旧令牌随即失效
+export async function resetPasswordById(id, hashedPassword) {
+  await query(
+    'UPDATE users SET password = ?, access_token = NULL, is_online = 0 WHERE id = ?',
+    [hashedPassword, id]
+  )
+}
+
+// 记录本次登录：更新 token、登录时间，并置为在线；心跳时间一并刷新（首跳前不显示掉线）
 export async function updateLoginState(id, accessToken) {
   await query(
-    'UPDATE users SET access_token = ?, login_time = NOW(), is_online = 1 WHERE id = ?',
+    `UPDATE users SET access_token = ?, login_time = NOW(), last_active_time = NOW(),
+            ping_ms = NULL, is_online = 1
+      WHERE id = ?`,
     [accessToken, id]
+  )
+}
+
+// 心跳：刷新最近活跃时间与上报延迟（前台每 15 秒一跳），顺带兜底在线态
+export async function touchHeartbeat(id, pingMs) {
+  await query(
+    'UPDATE users SET last_active_time = NOW(), ping_ms = ?, is_online = 1 WHERE id = ?',
+    [pingMs, id]
   )
 }
 
@@ -267,7 +291,9 @@ export async function rankByRealm(limit = 10) {
 export async function rankOnlineByRealm(limit = 10) {
   const n = Math.min(50, Math.max(1, parseInt(limit, 10) || 10))
   return query(
-    `SELECT u.id, u.dao_name, u.avatar, u.realm_id, r.name AS realm_name
+    `SELECT u.id, u.dao_name, u.avatar, u.realm_id, r.name AS realm_name,
+            u.ping_ms,
+            TIMESTAMPDIFF(SECOND, u.last_active_time, NOW()) AS idle_seconds
      FROM users u LEFT JOIN realms r ON r.id = u.realm_id
      WHERE u.role = 0 AND u.is_online = 1
      ORDER BY u.realm_id DESC, u.login_time DESC

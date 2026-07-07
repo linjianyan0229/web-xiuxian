@@ -4,6 +4,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+RUN apk add --no-cache tzdata
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 
@@ -14,4 +16,3 @@ RUN mkdir -p uploads
 EXPOSE 3000
 
 CMD ["npm", "start"]
-

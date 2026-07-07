@@ -4,6 +4,7 @@ import { apiAdminUsers, apiSetUserStatus, apiDeleteUser, apiRealms } from '../..
 import UserFormModal from '../../components/UserFormModal.vue'
 import UserAvatar from '../../components/UserAvatar.vue'
 import { useToast } from '../../composables/toast.js'
+import { fmtDateTime } from '../../utils/datetime.js'
 
 const toast = useToast()
 const state = reactive({
@@ -101,7 +102,7 @@ async function toggleStatus(row) {
 }
 
 function fmt(t) {
-  return t ? String(t).replace('T', ' ').slice(0, 19) : '—'
+  return fmtDateTime(t)
 }
 
 onMounted(async () => {

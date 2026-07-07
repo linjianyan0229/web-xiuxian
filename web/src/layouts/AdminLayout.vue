@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiAdminProfile } from '../api/admin.js'
 import { apiLogout } from '../api/auth.js'
+import logoUrl from '../../image/logo.webp'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -29,7 +30,7 @@ async function onLogout() {
   <div class="admin">
     <aside class="side">
       <div class="brand">
-        <span class="seal">仙</span>
+        <img class="seal" :src="logoUrl" alt="文字修仙" />
         <span class="name">修仙后台</span>
       </div>
       <nav class="nav">
@@ -90,15 +91,11 @@ async function onLogout() {
   gap: 10px;
   padding: 4px 8px;
 }
+/* 项目 logo（web/image/logo.webp，透明底），替代原色块印章 */
 .seal {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  font-family: var(--serif);
-  color: #fff;
-  background: var(--accent);
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 .name {
   font-family: var(--serif);

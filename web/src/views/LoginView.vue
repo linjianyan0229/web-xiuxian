@@ -51,6 +51,16 @@ async function onSubmit() {
 
     <p class="switch">
       尚未拜入仙门？<RouterLink to="/register">开宗立派</RouterLink>
+      <span class="sep">·</span>
+      忘了密令？<RouterLink to="/reset">重置密码</RouterLink>
     </p>
   </AuthShell>
 </template>
+
+<style scoped>
+.sep {
+  margin: 0 8px;
+  color: var(--ink-mut, #8b8e8a);
+  opacity: 0.6;
+}
+</style>

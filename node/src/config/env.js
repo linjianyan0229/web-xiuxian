@@ -27,6 +27,18 @@ export const config = {
     defaultPassword: process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD,
     defaultEmail: process.env.ADMIN_EMAIL || 'admin@xiuxian.local',
   },
+  // SMTP 发信（邮箱验证码用）。host 为空视为未配置：开发环境验证码打印到控制台，生产环境发信接口报 503
+  mail: {
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT) || 465,
+    // 465 端口为隐式 TLS（secure=true）；587/25 STARTTLS 需设 SMTP_SECURE=0
+    secure: process.env.SMTP_SECURE !== '0',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from:
+      process.env.MAIL_FROM ||
+      (process.env.SMTP_USER ? `文字修仙 <${process.env.SMTP_USER}>` : '文字修仙 <no-reply@xiuxian.local>'),
+  },
 }
 
 export const isProduction = config.env === 'production'

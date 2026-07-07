@@ -1,4 +1,6 @@
 <script setup>
+import logoUrl from '../../image/logo.webp'
+
 defineProps({
   title: { type: String, default: '' },
   subtitle: { type: String, default: '' },
@@ -57,7 +59,7 @@ const motes = [
         <div class="brand">
           <div class="seal-wrap">
             <div class="seal-ring"></div>
-            <div class="seal">仙</div>
+            <img class="seal-img" :src="logoUrl" alt="文字修仙" />
           </div>
           <h1>文字修仙</h1>
           <p class="tagline">道法自然 · 逆天而行</p>
@@ -226,7 +228,6 @@ const motes = [
   height: 46px;
   margin-bottom: 8px;
 }
-.auth-card.wide .seal { font-size: 21px; }
 .auth-card.wide .brand h1 { font-size: 21px; letter-spacing: 5px; text-indent: 5px; }
 .auth-card.wide .tagline { margin-top: 4px; font-size: 11px; }
 .auth-card.wide .auth-head { margin-bottom: 12px; }
@@ -292,19 +293,14 @@ const motes = [
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-.seal {
+/* 项目 logo（web/image/logo.webp，透明底圆形徽章），替代原金印字 */
+.seal-img {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 27px;
-  font-weight: 700;
-  color: #fff9ec;
-  background: radial-gradient(circle at 32% 28%, #d9b661, #b8933f 62%, #96702a);
-  border-radius: 50%;
-  box-shadow:
-    0 10px 22px -8px rgba(150, 112, 42, 0.8),
-    inset 0 1px 3px rgba(255, 255, 255, 0.5);
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 18px rgba(40, 90, 84, 0.35));
 }
 .brand h1 {
   margin: 0;

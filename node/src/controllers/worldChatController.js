@@ -6,6 +6,7 @@ import {
   secondsSinceLastMessage,
 } from '../models/worldMessageModel.js'
 import { getNumberConfig } from '../models/systemConfigModel.js'
+import { containsSensitive } from '../utils/sensitiveWords.js'
 
 // 单条消息最大字数（按字符计，与 DB VARCHAR(255) 留余量）
 const MAX_CONTENT_LEN = 200
@@ -42,6 +43,10 @@ export async function postWorldMessage(req, res, next) {
     }
     if ([...content].length > MAX_CONTENT_LEN) {
       return res.status(400).json({ error: `传音最多 ${MAX_CONTENT_LEN} 字` })
+    }
+    // 敏感词拦截（词库见 utils/sensitiveWords.js；先于冷却校验，改词重发不吃冷却）
+    if (containsSensitive(content)) {
+      return res.status(400).json({ error: '言辞含违禁之语，此界天道不容，请斟酌后再传音' })
     }
 
     const cooldown = await getCooldownSeconds()

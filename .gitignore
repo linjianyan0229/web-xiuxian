@@ -8,6 +8,8 @@ dist/
 # 本地资料目录（设计文档/数据源/审查反馈），不纳入版本库
 资源文件/
 计划反馈/
+# 敏感词库素材源（合并产物在 node/src/data/sensitive-words.txt，随库部署）
+Vocabulary/
 
 # 本地文档（技术文档/改动记录），不上传 GitHub
 docs/

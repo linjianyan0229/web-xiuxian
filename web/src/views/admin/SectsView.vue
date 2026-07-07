@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiAdminSects, apiAdminSectUpdate, apiAdminSectDisband } from '../../api/admin.js'
 import { useToast } from '../../composables/toast.js'
+import { fmtDateTime } from '../../utils/datetime.js'
 
 const toast = useToast()
 const state = reactive({
@@ -111,7 +112,7 @@ async function confirmDisband() {
 }
 
 function fmt(t) {
-  return t ? String(t).replace('T', ' ').slice(0, 19) : '—'
+  return fmtDateTime(t)
 }
 
 onMounted(load)

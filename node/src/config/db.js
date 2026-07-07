@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS users (
   dao_name      VARCHAR(32)     NOT NULL                 COMMENT '道号',
   email         VARCHAR(128)    NOT NULL                 COMMENT '邮箱',
   password      VARCHAR(255)    NOT NULL                 COMMENT '密码(bcrypt哈希)',
-  email_code    VARCHAR(16)     DEFAULT NULL             COMMENT '邮箱验证码',
   role          TINYINT         NOT NULL DEFAULT 0       COMMENT '角色: 0=玩家, 1=管理员',
   status        TINYINT         NOT NULL DEFAULT 1       COMMENT '状态: 0=禁用, 1=正常',
   realm_id      INT UNSIGNED    NOT NULL DEFAULT 1       COMMENT '当前境界(realms.id), 1=凡人',
@@ -32,6 +31,8 @@ CREATE TABLE IF NOT EXISTS users (
   sect_id       BIGINT UNSIGNED DEFAULT NULL             COMMENT '所属宗门(sects.id, NULL=散修)',
   register_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
+  last_active_time DATETIME     DEFAULT NULL             COMMENT '最近心跳时间(在线榜网络状态判定)',
+  ping_ms       SMALLINT UNSIGNED DEFAULT NULL           COMMENT '最近上报网络延迟(毫秒, NULL=未上报)',
   last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
   last_cultivate_time DATETIME  DEFAULT NULL             COMMENT '上次修炼时间(冷却用)',
   meditation_start_time DATETIME DEFAULT NULL            COMMENT '打坐开始时间(NULL=未打坐)',
@@ -114,6 +115,21 @@ CREATE TABLE IF NOT EXISTS user_pills (
   PRIMARY KEY (id),
   UNIQUE KEY uk_user_pill_grade (user_id, pill_id, grade)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='玩家丹药背包表';
+`
+
+// 建表语句：邮箱验证码表（注册/重置密码共用；一次一码、10 分钟有效、验证即作废）
+const CREATE_EMAIL_CODES_TABLE = `
+CREATE TABLE IF NOT EXISTS email_codes (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  email        VARCHAR(128)    NOT NULL              COMMENT '目标邮箱',
+  code         VARCHAR(8)      NOT NULL              COMMENT '验证码(6位数字)',
+  purpose      VARCHAR(16)     NOT NULL              COMMENT '用途: register=注册, reset=重置密码',
+  expires_at   DATETIME        NOT NULL              COMMENT '过期时间(签发+10分钟)',
+  used         TINYINT         NOT NULL DEFAULT 0    COMMENT '是否已使用: 0=未用, 1=已用',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '签发时间',
+  PRIMARY KEY (id),
+  KEY idx_email_purpose (email, purpose, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='邮箱验证码表';
 `
 
 // 建表语句：宗门表（成员关系记在 users.sect_id 上，宗门人数由其聚合得出，无独立成员表）
@@ -214,6 +230,13 @@ const DEFAULT_SYSTEM_CONFIGS = [
     label: '世界频道发言间隔(秒)',
     description: '同一玩家两次发言之间的最小间隔秒数，防刷屏；0 为不限制。',
     valueType: 'number',
+  },
+  {
+    key: 'register_email_code_enabled',
+    value: '1',
+    label: '注册邮箱验证码',
+    description: '开启后注册必须先获取并填写邮箱验证码；未配置 SMTP 的环境可临时关闭。重置密码不受此开关影响。',
+    valueType: 'bool',
   },
 ]
 
@@ -383,6 +406,7 @@ export async function initDatabase() {
   await pool.query(CREATE_PILLS_TABLE)
   await pool.query(CREATE_PILL_GRADES_TABLE)
   await pool.query(CREATE_USER_PILLS_TABLE)
+  await pool.query(CREATE_EMAIL_CODES_TABLE)
   await pool.query(CREATE_SECTS_TABLE)
   await pool.query(CREATE_PLAYER_LOGS_TABLE)
   await pool.query(CREATE_USER_DAILY_STATS_TABLE)
@@ -393,7 +417,7 @@ export async function initDatabase() {
   await ensureColumn(
     'users',
     'role',
-    "role TINYINT NOT NULL DEFAULT 0 COMMENT '角色: 0=玩家, 1=管理员' AFTER email_code"
+    "role TINYINT NOT NULL DEFAULT 0 COMMENT '角色: 0=玩家, 1=管理员' AFTER password"
   )
   await ensureColumn(
     'users',
@@ -452,6 +476,16 @@ export async function initDatabase() {
   )
   await ensureColumn(
     'users',
+    'last_active_time',
+    "last_active_time DATETIME DEFAULT NULL COMMENT '最近心跳时间(在线榜网络状态判定)' AFTER login_time"
+  )
+  await ensureColumn(
+    'users',
+    'ping_ms',
+    "ping_ms SMALLINT UNSIGNED DEFAULT NULL COMMENT '最近上报网络延迟(毫秒, NULL=未上报)' AFTER last_active_time"
+  )
+  await ensureColumn(
+    'users',
     'last_sign_time',
     "last_sign_time DATETIME DEFAULT NULL COMMENT '上次每日签到时间' AFTER login_time"
   )
@@ -482,6 +516,8 @@ export async function initDatabase() {
   )
   // 淘汰旧的单一百分比字段（早期版本）
   await dropColumn('realms', 'sign_in_percent')
+  // 淘汰 users.email_code 预留列：验证码改用独立 email_codes 表（注册时用户行尚不存在）
+  await dropColumn('users', 'email_code')
   // 清理旧设计：管理员已并入 users 表
   await pool.query('DROP TABLE IF EXISTS admins')
   // 重启后在线态清零，避免残留（真实在线由登录/登出维护）

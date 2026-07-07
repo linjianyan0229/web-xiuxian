@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
-import { getProfile, rankings, getLogs, getTodayStats } from '../controllers/userController.js'
+import { getProfile, rankings, getLogs, getTodayStats, heartbeat } from '../controllers/userController.js'
 import { getSignInStatus, doSignIn } from '../controllers/signInController.js'
 import { getCultivateStatus, doCultivate } from '../controllers/cultivateController.js'
 import { getBreakthroughStatus, doBreakthrough } from '../controllers/breakthroughController.js'
@@ -9,6 +9,7 @@ import { avatarUpload, uploadAvatar, setAvatarUrl } from '../controllers/avatarC
 import { getMyPills, getMyPillMeta, giftPill, discardPill } from '../controllers/userPillController.js'
 import { getWorldMessages, postWorldMessage } from '../controllers/worldChatController.js'
 import { getSects, getSectMeta, getSectDetail, doCreateSect } from '../controllers/sectController.js'
+import { checkSensitive } from '../controllers/sensitiveController.js'
 
 const router = Router()
 
@@ -16,6 +17,8 @@ const router = Router()
 router.get('/profile', authRequired, getProfile)
 // 需鉴权：排行榜（境界/在线/死亡，各前十）
 router.get('/rankings', authRequired, rankings)
+// 需鉴权：心跳（前台每 15 秒上报，带上一跳实测延迟；在线榜网络状态数据源）
+router.post('/heartbeat', authRequired, heartbeat)
 // 需鉴权：每日签到 —— 查询状态 / 执行签到
 router.get('/sign-in', authRequired, getSignInStatus)
 router.post('/sign-in', authRequired, doSignIn)
@@ -43,6 +46,8 @@ router.post('/avatar/url', authRequired, setAvatarUrl)
 // 需鉴权：世界频道 —— 拉取消息（afterId 增量轮询）/ 发言（冷却见系统配置）
 router.get('/world-chat', authRequired, getWorldMessages)
 router.post('/world-chat', authRequired, postWorldMessage)
+// 需鉴权：敏感词检测（通用预检；世界频道发言已服务端强制拦截）
+router.post('/sensitive/check', authRequired, checkSensitive)
 // 需鉴权：宗门 —— 列表（搜索/筛选/分页）/ 元数据 / 详情 / 创建（meta 须先于 :id 声明）
 router.get('/sects/meta', authRequired, getSectMeta)
 router.get('/sects', authRequired, getSects)

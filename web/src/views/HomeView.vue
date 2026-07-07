@@ -10,9 +10,13 @@ import MeditationModal from '../components/MeditationModal.vue'
 import PillBagModal from '../components/PillBagModal.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import AvatarModal from '../components/AvatarModal.vue'
+import AttributeModal from '../components/AttributeModal.vue'
 import { useToast } from '../composables/toast.js'
 import boyImg from '../../image/boy.webp'
 import girlImg from '../../image/girl.webp'
+import logoUrl from '../../image/logo.webp'
+import { netStatus } from '../utils/network.js'
+import { fmtDateTime } from '../utils/datetime.js'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -36,6 +40,8 @@ const pillBagVisible = ref(false)
 
 // 更换头像弹窗（点击角色卡头像）
 const avatarVisible = ref(false)
+// 详细属性弹窗（角色卡「详细属性」按钮）
+const attrVisible = ref(false)
 // 头像更换成功：后端已回最新用户视图，直接落到登录态并刷新日志
 function onAvatarUpdated(u) {
   auth.user = u
@@ -148,19 +154,21 @@ function fmtCn(n) {
 
 // 顶部资源栏：全部取自当前玩家真实数据
 // 灵石/修为/道韵/道法 存于 users；战力(攻击)/防御/精神力 取自玩家当前境界(realms)
+// 道韵/道法按后端 dao_yun/dao_law_unlocked 标志展示——境界未达对应阶段自动隐藏（与详细属性弹窗同规则）
 const resources = computed(() => {
   const u = auth.user || {}
-  return [
+  const list = [
     { label: '灵石', value: fmtCn(u.ling_shi) },
     { label: '修为', value: fmtCn(u.cultivation) },
     { label: '生命值', value: fmtCn(u.hp) },
     { label: '战力', value: fmtCn(u.attack) },
     { label: '防御', value: fmtCn(u.defense) },
     { label: '精神力', value: fmtCn(u.spirit) },
-    { label: '道韵', value: fmtCn(u.dao_yun) },
-    { label: '道法', value: fmtCn(u.dao_law) },
-    { label: '悟性', value: `${Number(u.comprehension) || 0}%` },
   ]
+  if (Number(u.dao_yun_unlocked) === 1) list.push({ label: '道韵', value: fmtCn(u.dao_yun) })
+  if (Number(u.dao_law_unlocked) === 1) list.push({ label: '道法', value: fmtCn(u.dao_law) })
+  list.push({ label: '悟性', value: `${Number(u.comprehension) || 0}%` })
+  return list
 })
 // 常用功能
 const funcs = ['纳戒', '传功', '吐纳', '打坐', '炼丹', '炼器', '阵法']
@@ -202,8 +210,9 @@ const today = computed(() => {
   ]
 })
 
+// 时间展示统一按东八区（utils/datetime.js），勿再截 ISO 串
 function fmt(t) {
-  return t ? String(t).replace('T', ' ').slice(0, 19) : '—'
+  return fmtDateTime(t)
 }
 
 const realmName = computed(() => auth.user?.realm_name || '凡人')
@@ -504,8 +513,11 @@ onUnmounted(() => {
     <!-- 顶部栏 -->
     <header class="topbar">
       <div class="brand">
-        <h1>文字修仙</h1>
-        <p>道心如砥 · 长生可期</p>
+        <img class="brand-logo" :src="logoUrl" alt="文字修仙" />
+        <div class="brand-text">
+          <h1>文字修仙</h1>
+          <p>道心如砥 · 长生可期</p>
+        </div>
       </div>
       <div class="resources">
         <span v-for="r in resources" :key="r.label" class="res">
@@ -521,7 +533,6 @@ onUnmounted(() => {
         >
           签
         </button>
-        <button class="icon-btn" @click="soon('设置')" title="设置">⚙</button>
         <button class="icon-btn" @click="soon('公告')" title="公告">✉</button>
         <button class="leave" @click="onLogout">离山</button>
       </div>
@@ -570,7 +581,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <button class="ghost-btn" @click="soon('详细属性')">详细属性 ›</button>
+        <button class="ghost-btn" @click="attrVisible = true">详细属性 ›</button>
       </aside>
 
       <!-- 中间：境界 + 常用功能 -->
@@ -677,6 +688,15 @@ onUnmounted(() => {
               <span class="rk" :class="'rk-' + (i + 1)">{{ i + 1 }}</span>
               <UserAvatar class="rk-ava" :avatar="row.avatar" :name="row.dao_name" :size="24" />
               <span class="rk-name">{{ row.dao_name }}</span>
+              <!-- 在线榜：网络状态（心跳延迟/掉线） -->
+              <span
+                v-if="rankTab === 'onlineTop'"
+                class="rk-net"
+                :class="'net-' + netStatus(row).key"
+                title="网络状态"
+              >
+                <i></i>{{ netStatus(row).label }}
+              </span>
               <span class="rk-val">
                 {{ rankTab === 'deathTop' ? row.death_count + ' 次' : (row.realm_name || '凡人') }}
               </span>
@@ -747,6 +767,13 @@ onUnmounted(() => {
       @close="avatarVisible = false"
       @updated="onAvatarUpdated"
     />
+
+    <!-- 详细属性（道韵/道法按境界解锁标志自动隐藏） -->
+    <AttributeModal
+      :visible="attrVisible"
+      :user="auth.user"
+      @close="attrVisible = false"
+    />
   </div>
 </template>
 
@@ -783,6 +810,19 @@ onUnmounted(() => {
   padding: 14px 26px;
   border-bottom: 1px solid var(--panel-line);
   background: rgba(255, 255, 255, 0.28);
+}
+/* 顶栏品牌：项目 logo + 标题 */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-logo {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 8px rgba(40, 90, 84, 0.3));
 }
 .brand h1 {
   margin: 0;
@@ -1389,6 +1429,28 @@ onUnmounted(() => {
   color: var(--gold);
   font-size: 12px;
 }
+/* 在线榜网络状态：色点 + 延迟/掉线文字 */
+.rk-net {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-mut);
+  font-variant-numeric: tabular-nums;
+}
+.rk-net i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.rk-net.net-good { color: #4a9e5f; }
+.rk-net.net-fair { color: #c9a24b; }
+.rk-net.net-poor { color: #b4453a; }
+.rk-net.net-lost { color: #9aa0a6; }
+.rk-net.net-unknown { color: var(--ink-mut); }
+.rk-net.net-unknown i { background: transparent; border: 1px solid currentColor; }
 .rk-empty, .rk-loading {
   text-align: center;
   color: var(--ink-mut);

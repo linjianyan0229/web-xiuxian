@@ -7,6 +7,7 @@ import SectCreateModal from '../components/SectCreateModal.vue'
 import SectDetailModal from '../components/SectDetailModal.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useToast } from '../composables/toast.js'
+import { fmtDateTime } from '../utils/datetime.js'
 import dongfuImg from '../../image/dongfu.webp'
 
 const router = useRouter()
@@ -95,7 +96,7 @@ async function onCreated(payload) {
 }
 
 function fmt(t) {
-  return t ? String(t).replace('T', ' ').slice(0, 10) : '—'
+  return fmtDateTime(t).slice(0, 10)
 }
 
 onMounted(async () => {

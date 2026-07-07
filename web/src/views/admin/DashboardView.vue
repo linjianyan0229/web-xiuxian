@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { apiDashboard, apiRankings } from '../../api/admin.js'
 import UserAvatar from '../../components/UserAvatar.vue'
 import { useToast } from '../../composables/toast.js'
+import { netStatus } from '../../utils/network.js'
 
 const toast = useToast()
 const stats = ref(null)
@@ -56,6 +57,15 @@ onMounted(async () => {
             <span class="no" :class="'no-' + (i + 1)">{{ i + 1 }}</span>
             <UserAvatar :avatar="row.avatar" :name="row.dao_name" :size="26" />
             <span class="name">{{ row.dao_name }}</span>
+            <!-- 在线榜：网络状态（心跳延迟/掉线） -->
+            <span
+              v-if="b.key === 'onlineTop'"
+              class="net"
+              :class="'net-' + netStatus(row).key"
+              title="网络状态"
+            >
+              <i></i>{{ netStatus(row).label }}
+            </span>
             <span class="val">
               {{ b.metric === 'death' ? row.death_count + ' 次' : (row.realm_name || '凡人') }}
             </span>
@@ -186,6 +196,28 @@ onMounted(async () => {
   color: var(--accent);
   font-size: 13px;
 }
+/* 在线榜网络状态：色点 + 延迟/掉线文字 */
+.net {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.net i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.net.net-good { color: #4a9e5f; }
+.net.net-fair { color: #c9a24b; }
+.net.net-poor { color: #b4453a; }
+.net.net-lost { color: #9aa0a6; }
+.net.net-unknown { color: var(--muted); }
+.net.net-unknown i { background: transparent; border: 1px solid currentColor; }
 .rank-list .empty {
   justify-content: center;
   color: var(--muted);

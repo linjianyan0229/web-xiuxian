@@ -2,6 +2,10 @@
 import { ref } from 'vue'
 import { RouterView, useRouter } from 'vue-router'
 import ToastHost from './components/ToastHost.vue'
+import { useHeartbeat } from './composables/heartbeat.js'
+
+// 玩家登录期间全局心跳（15 秒/跳，在线榜网络状态数据源）
+useHeartbeat()
 
 // 页面切换过渡：游戏内页面（home ↔ sect）按前进/返回方向滑动，其余路由轻淡入；
 // 首次进入/刷新不做动画（from 无 name）

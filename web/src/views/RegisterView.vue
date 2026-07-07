@@ -1,7 +1,8 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
+import { apiSendEmailCode } from '../api/auth.js'
 import AuthShell from '../components/AuthShell.vue'
 // 修仙角色展示：男/女修视频立绘（web/video/boy.mp4、girl.mp4），随表单性别选择切换
 import boyVideo from '../../video/boy.mp4'
@@ -10,9 +11,42 @@ import girlVideo from '../../video/girl.mp4'
 const router = useRouter()
 const auth = useAuthStore()
 
-const form = reactive({ daoName: '', email: '', password: '', confirm: '', gender: 1 })
+const form = reactive({ daoName: '', email: '', password: '', confirm: '', gender: 1, emailCode: '' })
 const error = ref('')
 const loading = ref(false)
+
+// 获取验证码：60 秒重发倒计时（以服务端返回的 resendSeconds 为准）
+const codeSending = ref(false)
+const codeCountdown = ref(0)
+let codeTimer = null
+onUnmounted(() => {
+  if (codeTimer) clearInterval(codeTimer)
+})
+
+async function sendCode() {
+  if (codeSending.value || codeCountdown.value > 0) return
+  error.value = ''
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    error.value = '请先填写正确的邮箱'
+    return
+  }
+  codeSending.value = true
+  try {
+    const r = await apiSendEmailCode(form.email, 'register')
+    codeCountdown.value = Number(r.resendSeconds) || 60
+    codeTimer = setInterval(() => {
+      codeCountdown.value -= 1
+      if (codeCountdown.value <= 0) {
+        clearInterval(codeTimer)
+        codeTimer = null
+      }
+    }, 1000)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    codeSending.value = false
+  }
+}
 
 async function onSubmit() {
   error.value = ''
@@ -28,6 +62,10 @@ async function onSubmit() {
     error.value = '两次输入的密码不一致'
     return
   }
+  if (!form.emailCode.trim()) {
+    error.value = '请填写邮箱验证码'
+    return
+  }
   loading.value = true
   try {
     await auth.register({
@@ -35,6 +73,7 @@ async function onSubmit() {
       email: form.email,
       password: form.password,
       gender: form.gender,
+      emailCode: form.emailCode.trim(),
     })
     router.push({ name: 'home' })
   } catch (e) {
@@ -77,6 +116,27 @@ async function onSubmit() {
         <label>邮箱</label>
         <input v-model.trim="form.email" type="email" placeholder="用于找回与验证" autocomplete="email" />
       </div>
+      <div class="field">
+        <label>邮箱验证码</label>
+        <div class="code-row">
+          <input
+            v-model.trim="form.emailCode"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="6 位数字"
+            autocomplete="one-time-code"
+          />
+          <button
+            type="button"
+            class="code-btn"
+            :disabled="codeSending || codeCountdown > 0"
+            @click="sendCode"
+          >
+            {{ codeCountdown > 0 ? `${codeCountdown}s 后重发` : codeSending ? '发送中…' : '获取验证码' }}
+          </button>
+        </div>
+      </div>
       <div class="field-row">
         <div class="field">
           <label>密码</label>
@@ -113,6 +173,50 @@ async function onSubmit() {
 </template>
 
 <style scoped>
+/* 验证码输入 + 获取按钮同行。
+   input 非 .field 直接子元素，AuthShell 的 :deep(.field > input) 不命中，此处补齐同款样式
+   （尺寸对齐二分栏紧凑档：padding 10/12、字号 14） */
+.code-row {
+  display: flex;
+  gap: 8px;
+}
+.code-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink-h, #26282c);
+  background: var(--field-bg, rgba(255, 255, 255, 0.66));
+  border: 1px solid var(--panel-line, rgba(60, 56, 46, 0.16));
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.code-row input::placeholder {
+  color: var(--ink-mut, #8b8e8a);
+  opacity: 0.65;
+}
+.code-row input:focus {
+  border-color: var(--gold, #b8933f);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 3px rgba(184, 147, 63, 0.16);
+}
+.code-btn {
+  flex: none;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  color: #4a3a12;
+  background: linear-gradient(180deg, #f2dda6, #d4af5b);
+  border: 1px solid rgba(184, 147, 63, 0.6);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.code-btn:hover:not(:disabled) { filter: brightness(1.05); }
+.code-btn:disabled { opacity: 0.55; cursor: default; }
+
 /* 密码/确认密码并排，压缩表单纵向高度（窄屏恢复上下排列） */
 .field-row {
   display: flex;

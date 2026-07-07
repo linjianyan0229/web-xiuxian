@@ -6,12 +6,108 @@ import {
   findPublicById,
   updateLoginState,
   clearLoginState,
+  resetPasswordById,
 } from '../models/userModel.js'
+import {
+  secondsSinceLastCode,
+  createCode,
+  verifyAndConsume,
+} from '../models/emailCodeModel.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signToken } from '../utils/jwt.js'
 import { DAO_NAME_RE, EMAIL_RE, MIN_PASSWORD_LEN } from '../utils/validators.js'
 import { rollComprehension } from '../utils/comprehension.js'
+import { sendVerificationCode } from '../utils/mailer.js'
+import { getBoolConfig } from '../models/systemConfigModel.js'
 import { addLog } from '../models/playerLogModel.js'
+
+// 邮箱验证码：有效期与重发间隔
+const CODE_TTL_MINUTES = 10
+const CODE_RESEND_SECONDS = 60
+const CODE_PURPOSES = ['register', 'reset']
+
+// 发送邮箱验证码（公开接口，注册/重置密码共用）
+export async function sendEmailCode(req, res, next) {
+  try {
+    const email = String(req.body?.email ?? '').trim()
+    const purpose = String(req.body?.purpose ?? '')
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: '邮箱格式不正确' })
+    }
+    if (!CODE_PURPOSES.includes(purpose)) {
+      return res.status(400).json({ error: '验证码用途不合法' })
+    }
+
+    // 注册要求邮箱未被占用；重置密码要求邮箱已立籍
+    const existing = await findByEmail(email)
+    if (purpose === 'register' && existing) {
+      return res.status(409).json({ error: '该邮箱已被注册' })
+    }
+    if (purpose === 'reset' && !existing) {
+      return res.status(404).json({ error: '此邮箱尚未在仙门立籍' })
+    }
+
+    // 重发限频（同邮箱同用途 60 秒一封）
+    const since = await secondsSinceLastCode(email, purpose)
+    if (since !== null && since < CODE_RESEND_SECONDS) {
+      return res
+        .status(409)
+        .json({ error: `发送过于频繁，稍候 ${CODE_RESEND_SECONDS - since} 息再试` })
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000))
+    await createCode(email, purpose, code, CODE_TTL_MINUTES)
+    try {
+      await sendVerificationCode(email, code, purpose, CODE_TTL_MINUTES)
+    } catch (err) {
+      console.error('发送验证码邮件失败:', err.message)
+      return res.status(503).json({ error: '发信服务暂不可用，请稍后再试' })
+    }
+    res.json({ ok: true, resendSeconds: CODE_RESEND_SECONDS, ttlMinutes: CODE_TTL_MINUTES })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// 重置密码：邮箱 + 验证码 + 新密码；成功后吊销该账号现有登录（access_token 清空）
+export async function resetPassword(req, res, next) {
+  try {
+    const email = String(req.body?.email ?? '').trim()
+    const emailCode = String(req.body?.emailCode ?? '').trim()
+    const newPassword = String(req.body?.newPassword ?? '')
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: '邮箱格式不正确' })
+    }
+    if (!emailCode) {
+      return res.status(400).json({ error: '请填写邮箱验证码' })
+    }
+    if (newPassword.length < MIN_PASSWORD_LEN) {
+      return res.status(400).json({ error: `新密码至少${MIN_PASSWORD_LEN}位` })
+    }
+
+    const record = await findByEmail(email)
+    if (!record) {
+      return res.status(404).json({ error: '此邮箱尚未在仙门立籍' })
+    }
+    if (record.status !== 1) {
+      return res.status(403).json({ error: '账号已被禁用' })
+    }
+
+    const ok = await verifyAndConsume(email, 'reset', emailCode)
+    if (!ok) {
+      return res.status(400).json({ error: '验证码有误或已过期' })
+    }
+
+    const hashed = await hashPassword(newPassword)
+    await resetPasswordById(record.id, hashed)
+    if (record.role !== 1) {
+      await addLog(record.id, 'reset_password', '重铸道基，密令已换，旧符尽废')
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+}
 
 // 注册
 export async function register(req, res, next) {
@@ -41,6 +137,18 @@ export async function register(req, res, next) {
     }
     if (await findByEmail(email)) {
       return res.status(409).json({ error: '该邮箱已被注册' })
+    }
+
+    // 邮箱验证码（系统配置可关，供未配 SMTP 的环境临时放行）
+    if (await getBoolConfig('register_email_code_enabled', true)) {
+      const emailCode = String(req.body?.emailCode ?? '').trim()
+      if (!emailCode) {
+        return res.status(400).json({ error: '请填写邮箱验证码' })
+      }
+      const codeOk = await verifyAndConsume(email, 'register', emailCode)
+      if (!codeOk) {
+        return res.status(400).json({ error: '验证码有误或已过期' })
+      }
     }
 
     const hashed = await hashPassword(password)
