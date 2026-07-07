@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
   dao_law       BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '道法领悟',
   comprehension TINYINT UNSIGNED NOT NULL DEFAULT 1      COMMENT '悟性(%), 上限100, 注册时随机生成',
   avatar        VARCHAR(255)    DEFAULT NULL             COMMENT '头像访问路径(/api/uploads/avatars/..., NULL=默认头像)',
+  gender        TINYINT         NOT NULL DEFAULT 1       COMMENT '性别: 1=男, 2=女',
   register_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
   last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
@@ -397,6 +398,11 @@ export async function initDatabase() {
     'users',
     'avatar',
     "avatar VARCHAR(255) DEFAULT NULL COMMENT '头像访问路径(/api/uploads/avatars/..., NULL=默认头像)' AFTER comprehension"
+  )
+  await ensureColumn(
+    'users',
+    'gender',
+    "gender TINYINT NOT NULL DEFAULT 1 COMMENT '性别: 1=男, 2=女' AFTER avatar"
   )
   await ensureColumn(
     'users',

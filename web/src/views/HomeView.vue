@@ -11,6 +11,8 @@ import PillBagModal from '../components/PillBagModal.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import AvatarModal from '../components/AvatarModal.vue'
 import { useToast } from '../composables/toast.js'
+import boyImg from '../../image/boy.webp'
+import girlImg from '../../image/girl.webp'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -130,6 +132,17 @@ function fmt(t) {
 }
 
 const realmName = computed(() => auth.user?.realm_name || '凡人')
+
+// 性别（1=男 2=女；旧数据缺省按男处理）
+const isFemale = computed(() => Number(auth.user?.gender) === 2)
+const genderLabel = computed(() => (isFemale.value ? '女修' : '男修'))
+// 角色卡背景：按性别绑定立绘（男=web/image/boy.webp，女=web/image/girl.webp，由原 PNG 压制 720 宽）。
+// 立绘本身即浅色水墨调，只覆一层轻纱渐变防遮图；文字可读性由 .char 的文字光晕兜底
+const charBgStyle = computed(() => ({
+  backgroundImage:
+    'linear-gradient(180deg, rgba(251, 250, 245, 0.5) 0%, rgba(251, 250, 245, 0.28) 40%, rgba(251, 250, 245, 0.1) 100%), ' +
+    `url(${isFemale.value ? girlImg : boyImg})`,
+}))
 
 // 修行日志：真实操作记录（注册/登录/签到/修炼等，后端 player_logs 表）
 const logRows = ref([])
@@ -449,8 +462,8 @@ onUnmounted(() => {
         </button>
       </nav>
 
-      <!-- 角色卡 -->
-      <aside class="card char">
+      <!-- 角色卡（背景立绘按性别绑定） -->
+      <aside class="card char" :style="charBgStyle">
         <div class="char-head">
           <button class="avatar-btn" title="更换头像" @click="avatarVisible = true">
             <UserAvatar :avatar="auth.user.avatar" :name="auth.user.dao_name" :size="52" />
@@ -463,6 +476,7 @@ onUnmounted(() => {
         </div>
         <dl class="char-stats">
           <div><dt>境界</dt><dd class="gold">{{ realmName }}</dd></div>
+          <div><dt>性别</dt><dd>{{ genderLabel }}</dd></div>
           <div><dt>状态</dt><dd>{{ auth.user.status === 1 ? '正常' : '禁用' }}</dd></div>
           <div><dt>灵根</dt><dd>金木水火土</dd></div>
           <div><dt>入道</dt><dd>{{ fmt(auth.user.register_time) }}</dd></div>
@@ -817,7 +831,15 @@ onUnmounted(() => {
   border-left: 3px solid var(--gold);
 }
 
-/* 角色卡 */
+/* 角色卡（背景立绘竖版 720x1280 webp，裁上半身居中）；
+   蒙版已减淡，卡内文字用宣纸色光晕保证立绘深色处（发丝等）依然可读 */
+.char {
+  background-size: cover;
+  background-position: center top;
+  text-shadow:
+    0 0 4px rgba(251, 250, 245, 0.95),
+    0 0 10px rgba(251, 250, 245, 0.8);
+}
 .char-head {
   display: flex;
   align-items: center;

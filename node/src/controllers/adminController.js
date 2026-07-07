@@ -195,9 +195,13 @@ function parseUint(v) {
 // 新建玩家
 export async function createUser(req, res, next) {
   try {
-    const { daoName, email, password, status = 1, realmId = 1 } = req.body || {}
+    const { daoName, email, password, status = 1, realmId = 1, gender = 1 } = req.body || {}
     if (!daoName || !email || !password) {
       return res.status(400).json({ error: '道号、邮箱、密码均为必填' })
+    }
+    const genderVal = Number(gender)
+    if (genderVal !== 1 && genderVal !== 2) {
+      return res.status(400).json({ error: '性别只能为 1(男) 或 2(女)' })
     }
     if (!DAO_NAME_RE.test(daoName)) {
       return res.status(400).json({ error: '道号需为2-16位中英文、数字或下划线' })
@@ -222,6 +226,7 @@ export async function createUser(req, res, next) {
       status: Number(status) === 0 ? 0 : 1,
       realmId: rid,
       comprehension: rollComprehension(),
+      gender: genderVal,
     })
     const user = await findPublicById(id)
     res.status(201).json({ user })
@@ -272,6 +277,13 @@ export async function editUser(req, res, next) {
       const rid = await resolveRealmId(body.realmId)
       if (rid === null) return res.status(400).json({ error: '境界不存在' })
       fields.realm_id = rid
+    }
+    if (body.gender !== undefined) {
+      const g = Number(body.gender)
+      if (g !== 1 && g !== 2) {
+        return res.status(400).json({ error: '性别只能为 1(男) 或 2(女)' })
+      }
+      fields.gender = g
     }
 
     // 资源 / 统计字段（非负整数）

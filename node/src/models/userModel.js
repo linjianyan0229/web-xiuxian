@@ -2,7 +2,7 @@ import { query } from '../config/db.js'
 
 // 对外暴露的用户视图（不含 password / email_code），关联出当前境界名
 const USER_SELECT = `
-  SELECT u.id, u.dao_name, u.email, u.role, u.status, u.avatar,
+  SELECT u.id, u.dao_name, u.email, u.role, u.status, u.avatar, u.gender,
          u.realm_id, r.name AS realm_name, r.advance_exp,
          u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.comprehension, u.death_count,
          r.hp, r.attack, r.defense, r.spirit,
@@ -41,11 +41,11 @@ export async function findRawById(id) {
   return rows[0] || null
 }
 
-export async function createUser({ daoName, email, password, emailCode = null, comprehension = 1 }) {
+export async function createUser({ daoName, email, password, emailCode = null, comprehension = 1, gender = 1 }) {
   const result = await query(
-    `INSERT INTO users (dao_name, email, password, email_code, role, status, comprehension)
-     VALUES (?, ?, ?, ?, 0, 1, ?)`,
-    [daoName, email, password, emailCode, comprehension]
+    `INSERT INTO users (dao_name, email, password, email_code, role, status, comprehension, gender)
+     VALUES (?, ?, ?, ?, 0, 1, ?, ?)`,
+    [daoName, email, password, emailCode, comprehension, gender]
   )
   return result.insertId
 }
@@ -347,18 +347,18 @@ export async function updateUserStatus(id, status) {
 }
 
 // 管理员新建玩家（恒为 role=0；password 需已哈希）
-export async function adminCreateUser({ daoName, email, password, status = 1, realmId = 1, comprehension = 1 }) {
+export async function adminCreateUser({ daoName, email, password, status = 1, realmId = 1, comprehension = 1, gender = 1 }) {
   const result = await query(
-    `INSERT INTO users (dao_name, email, password, role, status, realm_id, comprehension)
-     VALUES (?, ?, ?, 0, ?, ?, ?)`,
-    [daoName, email, password, status, realmId, comprehension]
+    `INSERT INTO users (dao_name, email, password, role, status, realm_id, comprehension, gender)
+     VALUES (?, ?, ?, 0, ?, ?, ?, ?)`,
+    [daoName, email, password, status, realmId, comprehension, gender]
   )
   return result.insertId
 }
 
 // 后台可更新的玩家字段白名单（password 为已哈希值）
 const USER_UPDATABLE = [
-  'dao_name', 'email', 'password', 'status', 'realm_id',
+  'dao_name', 'email', 'password', 'status', 'realm_id', 'gender',
   'ling_shi', 'cultivation', 'dao_yun', 'dao_law', 'comprehension', 'death_count',
 ]
 

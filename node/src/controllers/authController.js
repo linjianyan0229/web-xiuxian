@@ -16,10 +16,15 @@ import { addLog } from '../models/playerLogModel.js'
 // 注册
 export async function register(req, res, next) {
   try {
-    const { daoName, email, password } = req.body || {}
+    const { daoName, email, password, gender } = req.body || {}
 
     if (!daoName || !email || !password) {
       return res.status(400).json({ error: '道号、邮箱、密码均为必填' })
+    }
+    // 性别可选：1=男(默认)、2=女
+    const genderVal = gender === undefined ? 1 : Number(gender)
+    if (genderVal !== 1 && genderVal !== 2) {
+      return res.status(400).json({ error: '性别只能为 1(男) 或 2(女)' })
     }
     if (!DAO_NAME_RE.test(daoName)) {
       return res.status(400).json({ error: '道号需为2-16位中英文、数字或下划线' })
@@ -40,7 +45,13 @@ export async function register(req, res, next) {
 
     const hashed = await hashPassword(password)
     // 初始悟性：99.5% 落在 1~10，0.5% 天纵奇才直接 15
-    const id = await createUser({ daoName, email, password: hashed, comprehension: rollComprehension() })
+    const id = await createUser({
+      daoName,
+      email,
+      password: hashed,
+      comprehension: rollComprehension(),
+      gender: genderVal,
+    })
 
     // 注册成功即签发令牌，前端可直接进入（新用户恒为玩家）
     const token = signToken({ id, daoName, role: 'user' })

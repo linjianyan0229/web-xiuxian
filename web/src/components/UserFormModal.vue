@@ -19,6 +19,7 @@ const form = reactive({
   password: '',
   realmId: 1,
   status: 1,
+  gender: 1,
   lingShi: 0,
   cultivation: 0,
   daoYun: 0,
@@ -37,6 +38,7 @@ function resetFrom() {
     form.password = ''
     form.realmId = u.realm_id
     form.status = u.status
+    form.gender = Number(u.gender) === 2 ? 2 : 1
     form.lingShi = Number(u.ling_shi) || 0
     form.cultivation = Number(u.cultivation) || 0
     form.daoYun = Number(u.dao_yun) || 0
@@ -49,6 +51,7 @@ function resetFrom() {
     form.password = ''
     form.realmId = 1
     form.status = 1
+    form.gender = 1
     form.lingShi = 0
     form.cultivation = 0
     form.daoYun = 0
@@ -84,6 +87,7 @@ async function submit() {
         password: form.password,
         realmId: form.realmId,
         status: form.status,
+        gender: form.gender,
       })
     } else {
       const payload = {
@@ -91,6 +95,7 @@ async function submit() {
         email: form.email,
         realmId: form.realmId,
         status: form.status,
+        gender: form.gender,
         lingShi: form.lingShi,
         cultivation: form.cultivation,
         daoYun: form.daoYun,
@@ -143,6 +148,13 @@ async function submit() {
             <select v-model.number="form.status">
               <option :value="1">正常</option>
               <option :value="0">禁用</option>
+            </select>
+          </label>
+          <label class="fld">
+            <span>性别</span>
+            <select v-model.number="form.gender">
+              <option :value="1">男</option>
+              <option :value="2">女</option>
             </select>
           </label>
 

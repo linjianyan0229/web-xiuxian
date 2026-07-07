@@ -41,29 +41,36 @@ const motes = [
       ></span>
     </div>
 
-    <div class="auth-card">
+    <div class="auth-card" :class="{ wide: !!$slots.aside }">
       <!-- 四角墨纹 -->
       <span class="corner tl"></span>
       <span class="corner tr"></span>
       <span class="corner bl"></span>
       <span class="corner br"></span>
 
-      <div class="brand">
-        <div class="seal-wrap">
-          <div class="seal-ring"></div>
-          <div class="seal">仙</div>
+      <!-- 左侧展示栏（可选 aside 插槽：注册页的修仙角色展示等），提供则卡片变宽二分栏 -->
+      <div v-if="$slots.aside" class="card-aside">
+        <slot name="aside" />
+      </div>
+
+      <div class="card-main">
+        <div class="brand">
+          <div class="seal-wrap">
+            <div class="seal-ring"></div>
+            <div class="seal">仙</div>
+          </div>
+          <h1>文字修仙</h1>
+          <p class="tagline">道法自然 · 逆天而行</p>
         </div>
-        <h1>文字修仙</h1>
-        <p class="tagline">道法自然 · 逆天而行</p>
-      </div>
 
-      <div class="auth-head">
-        <div class="divider"><i></i><b>◆</b><i></i></div>
-        <h2>{{ title }}</h2>
-        <p v-if="subtitle" class="sub">{{ subtitle }}</p>
-      </div>
+        <div class="auth-head">
+          <div class="divider"><i></i><b>◆</b><i></i></div>
+          <h2>{{ title }}</h2>
+          <p v-if="subtitle" class="sub">{{ subtitle }}</p>
+        </div>
 
-      <slot />
+        <slot />
+      </div>
     </div>
 
     <p class="footnote">仙路漫漫 · 唯心不改</p>
@@ -169,7 +176,8 @@ const motes = [
   z-index: 1;
   width: 100%;
   max-width: 404px;
-  padding: 30px 36px 28px;
+  padding: 0;
+  overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--panel-line);
   border-radius: 18px;
@@ -179,6 +187,60 @@ const motes = [
   backdrop-filter: blur(3px);
   animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
+/* 内容区承接原卡片内边距（单栏视觉不变），双栏时作为右栏 */
+.card-main {
+  min-width: 0;
+  padding: 30px 36px 28px;
+}
+/* 带 aside 的宽卡片：左展示 / 右表单 二分栏。
+   整卡高度锁在视口内（预留页面内边距+落款），矮屏时右栏内部滚动，页面不出滚动条 */
+.auth-card.wide {
+  max-width: 900px;
+  max-height: calc(100svh - 96px);
+  display: flex;
+  align-items: stretch;
+}
+.card-aside {
+  position: relative;
+  flex: 0 0 44%;
+  min-height: 0;
+  border-right: 1px solid var(--panel-line);
+  background: linear-gradient(170deg, #e7e9e3 0%, #d9ddd5 100%);
+}
+.auth-card.wide .card-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 24px 30px 20px;
+}
+.auth-card.wide .card-main::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+/* 二分栏下右栏纵向紧凑化：压缩金印/标题/表单间距，保证常见屏高一屏放下 */
+.auth-card.wide .brand { margin-bottom: 10px; }
+.auth-card.wide .seal-wrap {
+  width: 46px;
+  height: 46px;
+  margin-bottom: 8px;
+}
+.auth-card.wide .seal { font-size: 21px; }
+.auth-card.wide .brand h1 { font-size: 21px; letter-spacing: 5px; text-indent: 5px; }
+.auth-card.wide .tagline { margin-top: 4px; font-size: 11px; }
+.auth-card.wide .auth-head { margin-bottom: 12px; }
+.auth-card.wide .divider { margin-bottom: 8px; }
+.auth-card.wide .auth-head h2 { font-size: 17px; }
+.auth-card.wide .auth-head .sub { margin-top: 5px; font-size: 12px; }
+.auth-card.wide :deep(.auth-form) { gap: 10px; }
+.auth-card.wide :deep(.field > input) {
+  padding: 10px 12px;
+  font-size: 14px;
+}
+.auth-card.wide :deep(.form-error) { min-height: 16px; }
+.auth-card.wide :deep(.btn) { padding: 11px 16px; font-size: 15px; }
+.auth-card.wide :deep(.switch) { margin-top: 12px; }
 @keyframes rise {
   from { transform: translateY(16px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
@@ -186,6 +248,7 @@ const motes = [
 /* 四角墨纹 */
 .corner {
   position: absolute;
+  z-index: 2;
   width: 18px;
   height: 18px;
   border: 1px solid var(--gold);
@@ -402,8 +465,27 @@ const motes = [
   border-color: var(--gold);
 }
 
+/* 窄屏：宽卡片改上下堆叠，展示栏收成横幅（恢复整页滚动，取消卡内滚动与高度锁定） */
+@media (max-width: 860px) {
+  .auth-card.wide {
+    max-width: 404px;
+    max-height: none;
+    flex-direction: column;
+  }
+  .auth-card.wide .card-main {
+    overflow-y: visible;
+  }
+  .card-aside {
+    flex: none;
+    min-height: 0;
+    height: 240px;
+    border-right: none;
+    border-bottom: 1px solid var(--panel-line);
+  }
+}
+
 @media (max-width: 480px) {
-  .auth-card { padding: 32px 24px 28px; }
+  .card-main { padding: 32px 24px 28px; }
   .brand h1 { font-size: 24px; letter-spacing: 5px; }
 }
 
