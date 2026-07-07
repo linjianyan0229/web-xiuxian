@@ -2,6 +2,7 @@ import { findCultivateInfo, applyCultivate } from '../models/userModel.js'
 import { getNumberConfig } from '../models/systemConfigModel.js'
 import { cultivationGainPerSession } from '../utils/cultivationGain.js'
 import { addLog } from '../models/playerLogModel.js'
+import { settleDueMeditation } from './meditationController.js'
 
 // 冷却秒数来自系统配置，收敛到 [1, 86400]，默认 60
 async function getCooldownSeconds() {
@@ -26,9 +27,11 @@ function buildStatus(info, cooldownSeconds) {
   // 修为丹系统尚未接入服用流程，丹药加成暂为 0（机制已就绪：资源文件/机制相关/修为修炼机制.md）
   const gain = cultivationGainPerSession(info.advance_exp, 0)
   const full = isFull(info)
+  const meditating = Number(info.is_meditating) === 1
   return {
-    canCultivate: Number(info.can_cultivate) === 1 && gain > 0 && !full,
+    canCultivate: Number(info.can_cultivate) === 1 && gain > 0 && !full && !meditating,
     isFull: full,
+    meditating,
     gain,
     cooldownSeconds,
     lastCultivateTime: info.last_cultivate_time,
@@ -42,6 +45,8 @@ function buildStatus(info, cooldownSeconds) {
 // 修炼状态：单次收益预览、冷却与进度（供前台首页境界卡展示）
 export async function getCultivateStatus(req, res, next) {
   try {
+    // 到期的打坐先行入账，返回的修为/圆满状态才是最新
+    await settleDueMeditation(req.user.id)
     const cooldown = await getCooldownSeconds()
     const info = await findCultivateInfo(req.user.id, cooldown)
     if (!info) return res.status(404).json({ error: '用户不存在' })
@@ -54,9 +59,15 @@ export async function getCultivateStatus(req, res, next) {
 // 执行修炼：校验冷却后按机制结算修为（当前境界圆满修为的5%，最后取整保底1）
 export async function doCultivate(req, res, next) {
   try {
+    await settleDueMeditation(req.user.id)
     const cooldown = await getCooldownSeconds()
     const info = await findCultivateInfo(req.user.id, cooldown)
     if (!info) return res.status(404).json({ error: '用户不存在' })
+
+    if (Number(info.is_meditating) === 1) {
+      // 打坐不可中断，入定期间也不可分心行功
+      return res.status(409).json({ error: '入定打坐之中，心神归一，不可分心修炼' })
+    }
 
     const gain = cultivationGainPerSession(info.advance_exp, 0)
     if (gain <= 0) {

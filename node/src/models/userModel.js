@@ -63,6 +63,18 @@ export async function setOnline(id, online) {
   await query('UPDATE users SET is_online = ? WHERE id = ?', [online ? 1 : 0, id])
 }
 
+// 中间件用：取当前库中存储的登录令牌（用于校验请求携带的 token 是否为最新签发的一枚，
+// 实现「后登录挤掉先登录」与「登出即吊销旧 token」）。
+export async function findAccessTokenById(id) {
+  const rows = await query('SELECT access_token FROM users WHERE id = ? LIMIT 1', [id])
+  return rows[0]?.access_token ?? null
+}
+
+// 登出：清空令牌并置离线；清空后旧 token 立即失效（中间件比对不通过）
+export async function clearLoginState(id) {
+  await query('UPDATE users SET access_token = NULL, is_online = 0 WHERE id = ?', [id])
+}
+
 /* ---------- 每日签到 ---------- */
 
 // 签到相关信息：当前境界的晋级方式与基准值(圆满修为/圆满道韵)、签到百分比区间、
@@ -105,7 +117,8 @@ export async function findCultivateInfo(id, cooldownSeconds) {
   const rows = await query(
     `SELECT u.id, u.cultivation, u.last_cultivate_time, u.realm_id,
             r.name AS realm_name, r.advance_exp,
-            (u.last_cultivate_time IS NULL OR u.last_cultivate_time <= NOW() - INTERVAL ? SECOND) AS can_cultivate
+            (u.last_cultivate_time IS NULL OR u.last_cultivate_time <= NOW() - INTERVAL ? SECOND) AS can_cultivate,
+            (u.meditation_end_time IS NOT NULL AND u.meditation_end_time > NOW()) AS is_meditating
      FROM users u LEFT JOIN realms r ON r.id = u.realm_id
      WHERE u.id = ? LIMIT 1`,
     [cd, id]
@@ -113,28 +126,77 @@ export async function findCultivateInfo(id, cooldownSeconds) {
   return rows[0] || null
 }
 
-// 原子修炼：仅当冷却已过时加修为并记录修炼时间；返回受影响行数（0=冷却未到，可防并发连点）
+// 原子修炼：仅当冷却已过且不在打坐中时加修为并记录修炼时间；
+// 打坐守卫（meditation_end_time IS NULL OR <= NOW()）防并发下入定与修炼同时成功。
+// 返回受影响行数（0=冷却未到 / 正在打坐，可防并发连点）
 export async function applyCultivate(id, gain, cooldownSeconds) {
   const cd = Math.max(0, Math.floor(Number(cooldownSeconds) || 0))
   const result = await query(
     `UPDATE users
         SET cultivation = cultivation + ?, last_cultivate_time = NOW()
       WHERE id = ?
-        AND (last_cultivate_time IS NULL OR last_cultivate_time <= NOW() - INTERVAL ? SECOND)`,
+        AND (last_cultivate_time IS NULL OR last_cultivate_time <= NOW() - INTERVAL ? SECOND)
+        AND (meditation_end_time IS NULL OR meditation_end_time <= NOW())`,
     [gain, id, cd]
+  )
+  return result.affectedRows
+}
+
+/* ---------- 打坐（定时挂机修炼） ---------- */
+
+// 打坐相关信息：打坐起止时间 + 当前境界圆满修为；
+// 打坐中/已到期均以 DB 时钟判定，剩余秒数供前端倒计时初始化
+export async function findMeditationInfo(id) {
+  const rows = await query(
+    `SELECT u.id, u.cultivation, u.realm_id,
+            u.meditation_start_time, u.meditation_end_time,
+            r.name AS realm_name, r.advance_exp,
+            (u.meditation_end_time IS NOT NULL AND u.meditation_end_time > NOW()) AS is_meditating,
+            (u.meditation_end_time IS NOT NULL AND u.meditation_end_time <= NOW()) AS is_due,
+            TIMESTAMPDIFF(SECOND, NOW(), u.meditation_end_time) AS remain_seconds
+     FROM users u LEFT JOIN realms r ON r.id = u.realm_id
+     WHERE u.id = ? LIMIT 1`,
+    [id]
+  )
+  return rows[0] || null
+}
+
+// 原子开始打坐：仅当没有进行中/待结算的场次时写入起止时间；返回受影响行数（0=已在打坐，防并发重复开场）
+export async function applyMeditationStart(id, minutes) {
+  const mins = Math.max(1, Math.floor(Number(minutes) || 0))
+  const result = await query(
+    `UPDATE users
+        SET meditation_start_time = NOW(),
+            meditation_end_time = NOW() + INTERVAL ? MINUTE
+      WHERE id = ? AND meditation_end_time IS NULL`,
+    [mins, id]
+  )
+  return result.affectedRows
+}
+
+// 原子结算到期打坐：加修为并清空打坐时间；WHERE 以 DB 时钟守卫「存在且已到期」，防并发重复结算
+export async function applyMeditationSettle(id, gain) {
+  const g = Math.max(0, Math.floor(Number(gain) || 0))
+  const result = await query(
+    `UPDATE users
+        SET cultivation = cultivation + ?,
+            meditation_start_time = NULL, meditation_end_time = NULL
+      WHERE id = ? AND meditation_end_time IS NOT NULL AND meditation_end_time <= NOW()`,
+    [g, id]
   )
   return result.affectedRows
 }
 
 /* ---------- 境界突破 ---------- */
 
-// 突破相关信息：玩家资源 + 当前境界行（该行即描述晋级到 next_realm 的要求）
+// 突破相关信息：玩家资源 + 当前境界行（该行即描述晋级到 next_realm 的要求）；带打坐中标记（入定时禁突破）
 export async function findBreakthroughInfo(id) {
   const rows = await query(
     `SELECT u.id, u.realm_id, u.cultivation, u.dao_yun, u.dao_law, u.death_count,
             r.name AS realm_name, r.requirement_type, r.advance_exp,
             r.dao_yun_required, r.dao_law_required,
-            r.tribulation_type, r.tribulation_death_rate, r.next_realm
+            r.tribulation_type, r.tribulation_death_rate, r.next_realm,
+            (u.meditation_end_time IS NOT NULL AND u.meditation_end_time > NOW()) AS is_meditating
      FROM users u LEFT JOIN realms r ON r.id = u.realm_id
      WHERE u.id = ? LIMIT 1`,
     [id]
@@ -145,33 +207,37 @@ export async function findBreakthroughInfo(id) {
 // 突破资源列白名单（防注入）
 const BREAKTHROUGH_COST_FIELDS = { cultivation: 'cultivation', dao_yun: 'dao_yun' }
 
-// 突破成功：境界+1 并扣除晋级资源；WHERE 带境界与资源守卫，防并发重复突破。
-// costField 为 null 时（道法型）不扣资源。返回受影响行数（0=状态已变化）
+// 突破成功：境界+1 并扣除晋级资源；WHERE 带境界、资源与打坐守卫，防并发重复突破/入定期冲关。
+// costField 为 null 时（道法型）不扣资源。返回受影响行数（0=状态已变化 / 正在打坐）
 export async function applyBreakthroughSuccess(id, fromRealmId, costField, costAmount) {
   if (costField) {
     const col = BREAKTHROUGH_COST_FIELDS[costField]
     if (!col) throw new Error(`非法的突破消耗字段: ${costField}`)
     const result = await query(
       `UPDATE users SET realm_id = realm_id + 1, ${col} = ${col} - ?
-       WHERE id = ? AND realm_id = ? AND ${col} >= ?`,
+       WHERE id = ? AND realm_id = ? AND ${col} >= ?
+         AND (meditation_end_time IS NULL OR meditation_end_time <= NOW())`,
       [costAmount, id, fromRealmId, costAmount]
     )
     return result.affectedRows
   }
   const result = await query(
-    'UPDATE users SET realm_id = realm_id + 1 WHERE id = ? AND realm_id = ?',
+    `UPDATE users SET realm_id = realm_id + 1
+       WHERE id = ? AND realm_id = ?
+         AND (meditation_end_time IS NULL OR meditation_end_time <= NOW())`,
     [id, fromRealmId]
   )
   return result.affectedRows
 }
 
-// 突破身陨：死亡次数+1，对应晋级资源折损一半（境界不变）。返回受影响行数
+// 突破身陨：死亡次数+1，对应晋级资源折损一半（境界不变）。带打坐守卫防入定期冲关。返回受影响行数
 export async function applyBreakthroughDeath(id, fromRealmId, lossField) {
   const col = BREAKTHROUGH_COST_FIELDS[lossField]
   if (!col) throw new Error(`非法的陨落损失字段: ${lossField}`)
   const result = await query(
     `UPDATE users SET death_count = death_count + 1, ${col} = FLOOR(${col} / 2)
-     WHERE id = ? AND realm_id = ?`,
+     WHERE id = ? AND realm_id = ?
+       AND (meditation_end_time IS NULL OR meditation_end_time <= NOW())`,
     [id, fromRealmId]
   )
   return result.affectedRows

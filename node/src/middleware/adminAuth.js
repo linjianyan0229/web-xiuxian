@@ -1,5 +1,5 @@
 import { verifyToken } from '../utils/jwt.js'
-import { findPublicById } from '../models/userModel.js'
+import { findPublicById, findAccessTokenById } from '../models/userModel.js'
 
 // 管理员鉴权中间件：令牌 role 必须为 admin，且对应 users 记录 role=1
 export async function adminAuthRequired(req, res, next) {
@@ -30,6 +30,11 @@ export async function adminAuthRequired(req, res, next) {
     }
     if (user.status !== 1) {
       return res.status(403).json({ error: '账号已被禁用' })
+    }
+    // Token 吊销校验：请求携带的 token 必须等于库中最新签发的一枚
+    const stored = await findAccessTokenById(payload.id)
+    if (!stored || stored !== token) {
+      return res.status(401).json({ error: '登录状态已失效，请重新登录' })
     }
 
     req.admin = user

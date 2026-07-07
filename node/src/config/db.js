@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import mysql from 'mysql2/promise'
-import { config } from './env.js'
+import { config, allowSeedDefaultAdmin } from './env.js'
 import { hashPassword } from '../utils/password.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS users (
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
   last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
   last_cultivate_time DATETIME  DEFAULT NULL             COMMENT '上次修炼时间(冷却用)',
+  meditation_start_time DATETIME DEFAULT NULL            COMMENT '打坐开始时间(NULL=未打坐)',
+  meditation_end_time DATETIME  DEFAULT NULL             COMMENT '打坐结束时间(到期后惰性结算并清空)',
   access_token  VARCHAR(512)    DEFAULT NULL             COMMENT '登录令牌',
   PRIMARY KEY (id),
   UNIQUE KEY uk_dao_name (dao_name),
@@ -136,6 +138,13 @@ const DEFAULT_SYSTEM_CONFIGS = [
     value: '60',
     label: '修炼间隔(秒)',
     description: '每次修炼后的调息冷却时长，单位秒。单次修炼收益为当前境界圆满修为(advance_exp)的5%。',
+    valueType: 'number',
+  },
+  {
+    key: 'meditation_gain_percent_per_hour',
+    value: '30',
+    label: '打坐每小时收益(%)',
+    description: '打坐每小时获得的修为占当前境界圆满修为(advance_exp)的百分比；期满一次性结算并封顶到圆满。',
     valueType: 'number',
   },
 ]
@@ -258,6 +267,14 @@ async function seedDefaultAdmin() {
   const [rows] = await pool.query('SELECT COUNT(*) AS c FROM users WHERE role = 1')
   if (rows[0].c > 0) return
 
+  // 生产环境未显式配置管理员口令时，不自动播种默认弱口令管理员
+  if (!allowSeedDefaultAdmin) {
+    console.warn(
+      '⚠ 生产环境未配置 ADMIN_PASSWORD，已跳过默认管理员播种；请手动创建管理员账号。'
+    )
+    return
+  }
+
   const { defaultUsername, defaultPassword, defaultEmail } = config.admin
   const hashed = await hashPassword(defaultPassword)
   await pool.query(
@@ -355,6 +372,16 @@ export async function initDatabase() {
     'users',
     'last_cultivate_time',
     "last_cultivate_time DATETIME DEFAULT NULL COMMENT '上次修炼时间(冷却用)' AFTER last_sign_time"
+  )
+  await ensureColumn(
+    'users',
+    'meditation_start_time',
+    "meditation_start_time DATETIME DEFAULT NULL COMMENT '打坐开始时间(NULL=未打坐)' AFTER last_cultivate_time"
+  )
+  await ensureColumn(
+    'users',
+    'meditation_end_time',
+    "meditation_end_time DATETIME DEFAULT NULL COMMENT '打坐结束时间(到期后惰性结算并清空)' AFTER meditation_start_time"
   )
   await ensureColumn(
     'realms',

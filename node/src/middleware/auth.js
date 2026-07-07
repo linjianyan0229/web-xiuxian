@@ -1,5 +1,5 @@
 import { verifyToken } from '../utils/jwt.js'
-import { findPublicById } from '../models/userModel.js'
+import { findPublicById, findAccessTokenById } from '../models/userModel.js'
 
 // 鉴权中间件：校验 Authorization: Bearer <token>，通过后挂载 req.user
 export async function authRequired(req, res, next) {
@@ -23,6 +23,12 @@ export async function authRequired(req, res, next) {
     }
     if (user.status !== 1) {
       return res.status(403).json({ error: '账号已被禁用' })
+    }
+    // Token 吊销校验：请求携带的 token 必须等于库中最新签发的一枚
+    // （登出会清空、异地登录会覆盖，旧 token 随即失效）
+    const stored = await findAccessTokenById(payload.id)
+    if (!stored || stored !== token) {
+      return res.status(401).json({ error: '登录状态已失效，请重新登录' })
     }
 
     req.user = user

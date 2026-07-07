@@ -15,5 +15,9 @@ export const apiCultivate = () => http.post('/user/cultivate')
 export const apiBreakthroughStatus = () => http.get('/user/breakthrough')
 export const apiBreakthrough = () => http.post('/user/breakthrough')
 
+// 打坐：查询状态（可选时长 / 进行中剩余）/ 开始打坐
+export const apiMeditationStatus = () => http.get('/user/meditation')
+export const apiMeditationStart = (minutes) => http.post('/user/meditation', { minutes })
+
 // 修行日志（最近 N 条）
 export const apiPlayerLogs = (limit) => http.get('/user/logs', { params: { limit } })

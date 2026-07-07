@@ -4,6 +4,7 @@ import {
   applyBreakthroughDeath,
 } from '../models/userModel.js'
 import { addLog } from '../models/playerLogModel.js'
+import { settleDueMeditation } from './meditationController.js'
 
 // 解析当前境界的晋级要求（境界行即描述晋级到 next_realm 的条件）
 // 机制见 资源文件/机制相关/境界突破机制.md
@@ -40,12 +41,15 @@ function parseRequirement(info) {
 // 组装突破状态（status 与 do 共用）
 function buildStatus(info) {
   const r = parseRequirement(info)
+  const meditating = Number(info.is_meditating) === 1
   if (r.kind === 'end') {
     return {
       atPeak: true,
+      meditating,
       canBreakthrough: false,
       realmName: info.realm_name || '',
       nextRealm: '',
+      blockReason: meditating ? '入定打坐之中，心神归一，不可强行冲关' : '',
     }
   }
   const hasTribulation = (info.requirement_type || '').includes('雷劫')
@@ -53,7 +57,8 @@ function buildStatus(info) {
   const met = r.required > 0 && r.current >= r.required
   return {
     atPeak: false,
-    canBreakthrough: met,
+    meditating,
+    canBreakthrough: met && !meditating,
     realmName: info.realm_name || '',
     nextRealm: info.next_realm || '',
     reqKind: r.kind,
@@ -66,12 +71,15 @@ function buildStatus(info) {
     tribulationType: hasTribulation ? info.tribulation_type || '雷劫' : '',
     deathRatePercent: deathRate,
     successRatePercent: Math.round((100 - deathRate) * 10) / 10,
+    blockReason: meditating ? '入定打坐之中，心神归一，不可强行冲关' : '',
   }
 }
 
 // 突破状态：下一境界、条件达成度、雷劫与死亡率（前台突破弹窗展示）
 export async function getBreakthroughStatus(req, res, next) {
   try {
+    // 到期的打坐先行入账，条件达成度里的修为才是最新
+    await settleDueMeditation(req.user.id)
     const info = await findBreakthroughInfo(req.user.id)
     if (!info) return res.status(404).json({ error: '用户不存在' })
     res.json(buildStatus(info))
@@ -83,8 +91,14 @@ export async function getBreakthroughStatus(req, res, next) {
 // 执行突破：校验条件 → 雷劫掷骰 → 晋级（扣资源）或身陨（死亡+1、资源折半）
 export async function doBreakthrough(req, res, next) {
   try {
+    await settleDueMeditation(req.user.id)
     const info = await findBreakthroughInfo(req.user.id)
     if (!info) return res.status(404).json({ error: '用户不存在' })
+
+    if (Number(info.is_meditating) === 1) {
+      // 打坐不可中断，入定期间不可动念冲关
+      return res.status(409).json({ error: '入定打坐之中，心神归一，不可强行冲关' })
+    }
 
     const status = buildStatus(info)
     if (status.atPeak) {

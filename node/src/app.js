@@ -1,10 +1,25 @@
 import express from 'express'
 import cors from 'cors'
 import apiRouter from './routes/index.js'
+import { config } from './config/env.js'
 
 const app = express()
 
-app.use(cors())
+// CORS：配置了 FRONTEND_ORIGIN 则仅放行这些来源（逗号分隔多个）；
+// 未配置时开发环境放开所有来源，生产环境从严（不回显来源，浏览器跨域被拦）。
+const allowedOrigins = config.frontendOrigin
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean)
+if (allowedOrigins.length > 0) {
+  app.use(cors({ origin: allowedOrigins, credentials: true }))
+} else if (config.env !== 'production') {
+  app.use(cors())
+} else {
+  // 生产未配置来源：不放行任何跨域来源（同源部署 / 反向代理场景无需 CORS）
+  app.use(cors({ origin: false }))
+}
+
 app.use(express.json())
 
 app.use('/api', apiRouter)

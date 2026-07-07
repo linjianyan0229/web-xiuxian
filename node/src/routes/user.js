@@ -4,6 +4,7 @@ import { getProfile, rankings, getLogs } from '../controllers/userController.js'
 import { getSignInStatus, doSignIn } from '../controllers/signInController.js'
 import { getCultivateStatus, doCultivate } from '../controllers/cultivateController.js'
 import { getBreakthroughStatus, doBreakthrough } from '../controllers/breakthroughController.js'
+import { getMeditationStatus, startMeditation } from '../controllers/meditationController.js'
 
 const router = Router()
 
@@ -20,6 +21,9 @@ router.post('/cultivate', authRequired, doCultivate)
 // 需鉴权：境界突破 —— 查询条件与雷劫信息 / 执行突破
 router.get('/breakthrough', authRequired, getBreakthroughStatus)
 router.post('/breakthrough', authRequired, doBreakthrough)
+// 需鉴权：打坐 —— 查询状态（打坐中剩余/可选时长与预估收益）/ 开始打坐（期满自动结算，不可中断）
+router.get('/meditation', authRequired, getMeditationStatus)
+router.post('/meditation', authRequired, startMeditation)
 // 需鉴权：修行日志（最近 N 条）
 router.get('/logs', authRequired, getLogs)
 

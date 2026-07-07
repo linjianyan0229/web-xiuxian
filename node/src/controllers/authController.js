@@ -5,7 +5,7 @@ import {
   createUser,
   findPublicById,
   updateLoginState,
-  setOnline,
+  clearLoginState,
 } from '../models/userModel.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { signToken } from '../utils/jwt.js'
@@ -94,10 +94,10 @@ export async function login(req, res, next) {
   }
 }
 
-// 登出：置为离线（需鉴权）
+// 登出：清空令牌（吊销旧 token）并置离线（需鉴权）
 export async function logout(req, res, next) {
   try {
-    await setOnline(req.user.id, 0)
+    await clearLoginState(req.user.id)
     if (req.user.role !== 1) {
       await addLog(req.user.id, 'logout', '暂离此界，闭关去了')
     }

@@ -1,6 +1,7 @@
 import { findSignInInfo, applySignIn } from '../models/userModel.js'
 import { getBoolConfig } from '../models/systemConfigModel.js'
 import { addLog } from '../models/playerLogModel.js'
+import { settleDueMeditation } from './meditationController.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -73,6 +74,7 @@ function buildPreview(info) {
 // 签到状态：供前台判断是否弹窗、展示奖励类型与预计区间、冷却时间
 export async function getSignInStatus(req, res, next) {
   try {
+    await settleDueMeditation(req.user.id)
     const enabled = await getBoolConfig('sign_in_enabled', true)
     const info = await findSignInInfo(req.user.id)
     if (!info) return res.status(404).json({ error: '用户不存在' })
@@ -93,6 +95,7 @@ export async function getSignInStatus(req, res, next) {
 // 执行签到：校验总开关 + 24 小时冷却，按境界档位随机发放对应资源
 export async function doSignIn(req, res, next) {
   try {
+    await settleDueMeditation(req.user.id)
     const enabled = await getBoolConfig('sign_in_enabled', true)
     if (!enabled) return res.status(403).json({ error: '签到功能暂未开启' })
 

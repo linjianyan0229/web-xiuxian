@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiLogout } from '../api/auth.js'
-import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs } from '../api/game.js'
+import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus } from '../api/game.js'
 import SignInModal from '../components/SignInModal.vue'
 import BreakthroughModal from '../components/BreakthroughModal.vue'
+import MeditationModal from '../components/MeditationModal.vue'
 import { useToast } from '../composables/toast.js'
 
 const router = useRouter()
@@ -24,6 +25,12 @@ let tickTimer = null
 
 // 境界突破弹窗
 const btVisible = ref(false)
+
+// 打坐（定时挂机修炼）：状态 + 弹窗 + 到期自动结算
+const med = ref(null)
+const medVisible = ref(false)
+const medEndAt = ref(0) // 打坐结束绝对时刻(ms)，以 remainSeconds 客户端锚定
+let medSettling = false
 
 // 排行榜（境界/在线/死亡，各前十）
 const ranks = ref(null)
@@ -151,6 +158,29 @@ const cultFull = computed(() => {
   return total > 0 && (Number(auth.user?.cultivation) || 0) >= total
 })
 
+// 打坐倒计时（以 remainSeconds 锚定 medEndAt，避开时区/时钟漂移）
+function anchorMed(status) {
+  medEndAt.value =
+    status?.meditating && Number(status.remainSeconds) > 0
+      ? Date.now() + Number(status.remainSeconds) * 1000
+      : 0
+}
+const medRemain = computed(() => {
+  if (!med.value?.meditating || !medEndAt.value) return 0
+  return Math.max(0, Math.ceil((medEndAt.value - nowTick.value) / 1000))
+})
+const medActive = computed(() => !!med.value?.meditating && medRemain.value > 0)
+// 秒数 → HH:MM:SS / MM:SS
+function fmtClock(sec) {
+  let s = Math.max(0, Math.floor(sec))
+  const h = Math.floor(s / 3600)
+  s -= h * 3600
+  const m = Math.floor(s / 60)
+  s -= m * 60
+  const p = (n) => String(n).padStart(2, '0')
+  return h > 0 ? `${p(h)}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`
+}
+
 // 执行修炼：结算修为并进入调息冷却
 async function doCultivate() {
   if (cultBusy.value || cultRemain.value > 0 || !cult.value?.gain) return
@@ -173,6 +203,79 @@ async function doCultivate() {
     cultBusy.value = false
   }
 }
+
+// 打坐功成：修为入账已由后端完成，这里刷新展示并提示
+async function onMeditationSettled(settled) {
+  toast.success(
+    settled.gained > 0
+      ? `打坐${settled.label}功成，修为 +${fmtCn(settled.gained)}`
+      : `打坐${settled.label}期满，然修为早已圆满`
+  )
+  try {
+    await auth.fetchProfile()
+  } catch {
+    /* 刷新失败保持现状 */
+  }
+  try {
+    cult.value = await apiCultivateStatus()
+  } catch {
+    /* 同上 */
+  }
+  loadLogs()
+  try {
+    ranks.value = await apiGameRankings()
+  } catch {
+    /* 同上 */
+  }
+}
+
+// 打坐到期结算（后台：仅弹窗关闭时由本页负责，弹窗打开时交给弹窗以免重复）
+async function settleMeditationBg() {
+  if (medSettling) return
+  medSettling = true
+  try {
+    const s = await apiMeditationStatus()
+    med.value = s
+    anchorMed(s)
+    if (s.settled) onMeditationSettled(s.settled)
+  } catch {
+    /* 结算失败下次交互再补 */
+  } finally {
+    medSettling = false
+  }
+}
+
+// 弹窗内「开始打坐」成功：同步本页状态并进入倒计时
+function onMeditationStarted(status) {
+  med.value = status
+  anchorMed(status)
+  toast.info(`收摄心神，盘膝入定（${status.durationLabel || '打坐'}）`)
+  loadLogs()
+}
+
+// 弹窗内「出定结算」回抛：同步状态并走统一结算展示
+function onMeditationModalSettled(status) {
+  med.value = status
+  anchorMed(status)
+  if (status.settled) onMeditationSettled(status.settled)
+}
+
+function openMeditation() {
+  medVisible.value = true
+}
+
+// 常用功能点击：打坐进入定时挂机弹窗，其余暂为占位
+function onFunc(name) {
+  if (name === '打坐') openMeditation()
+  else soon(name)
+}
+
+// 打坐倒计时归零：弹窗关闭时由本页自动结算（弹窗打开时交给弹窗，避免重复结算/提示）
+watch(medRemain, (r, prev) => {
+  if (!medVisible.value && med.value?.meditating && r === 0 && prev > 0) {
+    settleMeditationBg()
+  }
+})
 
 async function onLogout() {
   await apiLogout().catch(() => {})
@@ -227,6 +330,16 @@ onMounted(async () => {
     if (signStatus.value.canSignIn) signVisible.value = true
   } catch {
     /* 签到状态拉取失败不影响主界面 */
+  }
+  // 打坐状态先于修炼状态拉取：让打坐接口负责结算离线到期的场次（返回 settled 以刷新 HUD/提示），
+  // 否则修炼状态接口会先行惰性结算而拿不到 settled，导致修为增长不即时反映到资源栏
+  try {
+    med.value = await apiMeditationStatus()
+    anchorMed(med.value)
+    // 进入首页时若上一场打坐已到期，惰性结算的结果即时展示
+    if (med.value.settled) onMeditationSettled(med.value.settled)
+  } catch {
+    /* 打坐状态拉取失败不影响主界面 */
   }
   try {
     cult.value = await apiCultivateStatus()
@@ -316,12 +429,14 @@ onUnmounted(() => {
           </div>
           <div class="bar"><span :style="{ width: cultProgress + '%' }"></span></div>
           <div class="cultivate-sub">
-            <template v-if="!cult">修炼准备中…</template>
+            <template v-if="medActive">入定打坐中 · 心神归一，静候出定，期满自得修为</template>
+            <template v-else-if="!cult">修炼准备中…</template>
             <template v-else-if="cultFull">修为已臻圆满，天时已至，可尝试突破境界</template>
             <template v-else-if="cult.gain > 0">每次修炼 +{{ fmtCn(cult.gain) }} 修为 · 调息 {{ cult.cooldownSeconds }} 秒</template>
             <template v-else>此境已非打坐可进，需另觅道法机缘</template>
           </div>
-          <button v-if="cultFull" class="gold-btn breakthrough" @click="btVisible = true">
+          <button v-if="medActive" class="gold-btn" disabled>入定中 · {{ fmtClock(medRemain) }}</button>
+          <button v-else-if="cultFull" class="gold-btn breakthrough" @click="btVisible = true">
             突 破
           </button>
           <button
@@ -346,9 +461,15 @@ onUnmounted(() => {
         <section class="card funcs">
           <h3 class="panel-title">常用功能</h3>
           <div class="func-row">
-            <button v-for="f in funcs" :key="f" class="func" @click="soon(f)">
+            <button
+              v-for="f in funcs"
+              :key="f"
+              class="func"
+              :class="{ meditating: f === '打坐' && medActive }"
+              @click="onFunc(f)"
+            >
               <span class="func-ico">{{ f.slice(0, 1) }}</span>
-              <span class="func-lbl">{{ f }}</span>
+              <span class="func-lbl">{{ f === '打坐' && medActive ? fmtClock(medRemain) : f }}</span>
             </button>
           </div>
         </section>
@@ -392,7 +513,7 @@ onUnmounted(() => {
             <div v-for="t in today" :key="t[0]"><dt>{{ t[0] }}</dt><dd>{{ t[1] }}</dd></div>
           </dl>
         </section>
-        <section class="card">
+        <section class="card log-card">
           <h3 class="panel-title">修行日志</h3>
           <ul class="log">
             <li v-for="l in logs" :key="l.id">
@@ -420,6 +541,14 @@ onUnmounted(() => {
       :visible="btVisible"
       @close="btVisible = false"
       @done="onBreakthroughDone"
+    />
+
+    <!-- 打坐入定 -->
+    <MeditationModal
+      :visible="medVisible"
+      @close="medVisible = false"
+      @started="onMeditationStarted"
+      @settled="onMeditationModalSettled"
     />
   </div>
 </template>
@@ -552,8 +681,7 @@ onUnmounted(() => {
 /* 各列在列内自行滚动（隐藏滚动条），避免整页出现滚动条 */
 .rail,
 .char,
-.mid,
-.side {
+.mid {
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
@@ -562,10 +690,14 @@ onUnmounted(() => {
 }
 .rail::-webkit-scrollbar,
 .char::-webkit-scrollbar,
-.mid::-webkit-scrollbar,
-.side::-webkit-scrollbar {
+.mid::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+/* 右列不整列滚动：作为定高 flex 容器，滚动交给内部「修行日志」卡片 */
+.side {
+  min-height: 0;
+  max-height: 100%;
 }
 
 /* 左侧功能栏 */
@@ -792,12 +924,36 @@ onUnmounted(() => {
 }
 .func:hover .func-ico { color: var(--gold); border-color: var(--gold); }
 .func-lbl { font-size: 12px; color: var(--ink); }
+/* 打坐进行中：高亮并显示剩余时间 */
+.func.meditating .func-ico {
+  color: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(184, 147, 63, 0.16);
+}
+.func.meditating .func-lbl {
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
 
-/* 右列 */
+/* 右列：整列锁定一屏高，前两块固定，「修行日志」占余高并内部滚动 */
 .side {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.side > section:not(.log-card) {
+  flex: 0 0 auto;
+}
+/* 修行日志卡片：撑满剩余空间，列表在卡内滚动（隐藏滚动条），整体不超屏 */
+.log-card {
+  flex: 1 1 auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.log-card .panel-title {
+  flex: 0 0 auto;
 }
 
 /* 排行榜 */
@@ -896,7 +1052,21 @@ onUnmounted(() => {
 }
 .kv dt { color: var(--ink-mut); }
 .kv dd { margin: 0; color: var(--ink-h); }
-.log { list-style: none; margin: 0; padding: 0; }
+/* 修行日志列表：卡内滚动，隐藏滚动条 */
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.log::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
 .log li {
   display: flex;
   justify-content: space-between;
@@ -922,6 +1092,16 @@ onUnmounted(() => {
     overflow-y: visible;
   }
   .rank-list { max-height: none; }
+  /* 窄屏恢复整页滚动：日志卡不再定高内滚，随内容展开 */
+  .log-card {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+  .log {
+    overflow-y: visible;
+    max-height: none;
+  }
   .rail { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .rail-item { flex: 0 0 auto; padding: 10px 14px; }
 }

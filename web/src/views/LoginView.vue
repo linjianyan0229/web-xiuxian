@@ -54,17 +54,3 @@ async function onSubmit() {
     </p>
   </AuthShell>
 </template>
-
-<style scoped>
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.switch {
-  margin: 18px 0 0;
-  text-align: center;
-  font-size: 13px;
-  color: var(--muted);
-}
-</style>
