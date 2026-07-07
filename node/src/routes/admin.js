@@ -16,6 +16,7 @@ import {
   setRealmSignIn,
 } from '../controllers/adminController.js'
 import { getPills, getPillMeta, editPill, editPillGrade } from '../controllers/pillController.js'
+import { adminGetSects, adminEditSect, adminDisbandSect } from '../controllers/sectController.js'
 
 const router = Router()
 
@@ -39,5 +40,9 @@ router.get('/pills/meta', adminAuthRequired, getPillMeta)
 router.get('/pills', adminAuthRequired, getPills)
 router.put('/pills/:id', adminAuthRequired, editPill)
 router.put('/pills/:id/grades/:grade', adminAuthRequired, editPillGrade)
+// 宗门列表管理
+router.get('/sects', adminAuthRequired, adminGetSects)
+router.put('/sects/:id', adminAuthRequired, adminEditSect)
+router.delete('/sects/:id', adminAuthRequired, adminDisbandSect)
 
 export default router

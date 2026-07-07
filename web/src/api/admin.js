@@ -26,3 +26,8 @@ export const apiUpdatePillGrade = (id, grade, payload) =>
 // 更新某境界的每日签到奖励百分比区间
 export const apiUpdateRealmSignIn = (id, minPercent, maxPercent) =>
   http.patch(`/admin/realms/${id}/sign-in`, { minPercent, maxPercent })
+
+// 宗门列表管理
+export const apiAdminSects = (params) => http.get('/admin/sects', { params })
+export const apiAdminSectUpdate = (id, payload) => http.put(`/admin/sects/${id}`, payload)
+export const apiAdminSectDisband = (id) => http.delete(`/admin/sects/${id}`)

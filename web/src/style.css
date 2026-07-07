@@ -47,6 +47,13 @@
   box-sizing: border-box;
 }
 
+html {
+  /* 路由页过渡用 translateX 滑动，全宽页面平移时会横向溢出；
+     裁掉溢出避免动画期间横向滚动条闪现引发宽高跳动（clip 不建立滚动容器，hidden 兜底） */
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   min-height: 100svh;

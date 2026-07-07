@@ -1,8 +1,9 @@
 import { query } from '../config/db.js'
+import { disbandSectsLedBy } from './sectModel.js'
 
 // 对外暴露的用户视图（不含 password / email_code），关联出当前境界名
 const USER_SELECT = `
-  SELECT u.id, u.dao_name, u.email, u.role, u.status, u.avatar, u.gender,
+  SELECT u.id, u.dao_name, u.email, u.role, u.status, u.avatar, u.gender, u.sect_id,
          u.realm_id, r.name AS realm_name, r.advance_exp,
          u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.comprehension, u.death_count,
          r.hp, r.attack, r.defense, r.spirit,
@@ -379,11 +380,14 @@ export async function updateUser(id, fields) {
 
 // 删除玩家（仅 role=0，避免误删管理员）；连带清理其修行日志与丹药背包（无外键，手动级联）
 export async function deleteUser(id) {
+  // 先解散其执掌的宗门（清全体成员归属）——须在删除本人前做，宗主关系尚在
+  await disbandSectsLedBy(id)
   const result = await query('DELETE FROM users WHERE id = ? AND role = 0', [id])
   if (result.affectedRows > 0) {
     await query('DELETE FROM player_logs WHERE user_id = ?', [id])
     await query('DELETE FROM user_pills WHERE user_id = ?', [id])
     await query('DELETE FROM user_daily_stats WHERE user_id = ?', [id])
+    await query('DELETE FROM world_messages WHERE user_id = ?', [id])
   }
   return result.affectedRows
 }

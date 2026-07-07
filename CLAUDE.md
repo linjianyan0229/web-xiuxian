@@ -9,6 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `node/` — **后端**，技术栈：Node.js + Express 5（ESM）+ MySQL（mysql2）+ JWT + bcryptjs
 - `web/` — **前端**，技术栈：Vue 3 + Vite + vue-router + pinia + axios
 
+面向人的完整技术文档在 `docs/技术文档.md`（架构/库表/API/机制/部署），改动表结构、接口或机制后请同步更新它与本文件。**`docs/` 整个目录已 gitignore（本地文档，不上传 GitHub），属预期而非遗漏。**
+
 ## 强制目录规范（必须遵守）
 
 **所有开发必须严格按文件夹分类执行：**
@@ -17,6 +19,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 前端代码（Vue 组件、页面、状态管理、样式、静态资源等）**只能**写在 `web/` 目录内。
 - 禁止在仓库根目录或对方目录中混放前后端代码。
 - `node/` 和 `web/` 各自维护独立的 `package.json`，依赖分别在各自目录内安装（不要在根目录安装依赖）。
+
+## 改动总结文档（每次改动必写）
+
+**每完成一项改动（功能/修复/重构），在 `docs/改动记录/` 下写一份总结 md**，文件名 `YYYY-MM-DD-<主题>.md`（同日同主题多次迭代加 `-2`、`-3` 后缀）。内容按以下结构，讲清楚"改了什么、为什么、怎么验证的"即可，不必长篇：
+
+```markdown
+# <主题>
+
+- 日期：YYYY-MM-DD
+- 需求：一两句话说明背景/用户诉求
+
+## 改动内容
+- 后端：…（表结构/接口/机制，无则写"无"）
+- 前端：…（页面/组件/交互，无则写"无"）
+
+## 涉及文件
+- 新增：`path/to/file`（一句话用途）
+- 修改：`path/to/file`（一句话改了什么）
+
+## 验证
+- 怎么测的、结果如何（接口实测/构建通过/页面自查等）
+
+## 遗留
+- 未尽事项或后续建议（无则写"无"）
+```
+
+写总结是收尾动作的一部分：总结 → 同步 CLAUDE.md 与 `docs/技术文档.md`（若涉及表结构/接口/机制）→ 才算完成。总结文档是流水账式的历史记录，**只增不改**（修正错误除外）；沉淀性的知识仍以 CLAUDE.md 和技术文档为准。
 
 ## 常用命令
 
@@ -55,11 +84,13 @@ npm run preview    # 预览构建产物
 - **修为修炼（已实装）**：每次修炼获得当前境界（含小境界）总经验 `advance_exp` 的 5%；修为丹生效时段内数值再乘 (1+加成%/100)，最后一步四舍五入、保底 1 点（丹药服用玩法未实装，加成暂按 0 计）。与悟性无关，签到奖励也不受丹药加成影响。计算函数 `cultivationGainPerSession()` 在 `utils/cultivationGain.js`，结算在 `controllers/cultivateController.js`（原子 UPDATE 防连点，同签到模式）；冷却秒数为系统配置 `cultivate_cooldown_seconds`（默认 60）。仙王及以上 `advance_exp=0`（靠道法晋级），修炼接口返回不可打坐的提示。设计文档：`资源文件/机制相关/修为修炼机制.md`。
 - **修行日志表 `player_logs`**：`id, user_id, type(register/login/logout/sign_in/cultivate...), content(叙事文本), created_time`，索引 `(user_id, created_time)`。写入用 `playerLogModel.addLog()`——**旁路功能，内部 try/catch 只告警不抛错**，各控制器在操作成功后调用；管理员的登录/登出不写。删除玩家时手动级联清理其日志（无外键）。新增玩家操作时记得补一条 addLog。
 - **每日修炼统计表 `user_daily_stats`（前台「今日修炼」面板数据源）**：`(user_id, stat_date)` 主键按天一行，字段 `cultivate_count`(修炼次数)/`meditation_seconds`(打坐秒数, 按结算日整段入账)/`cultivation_gained`(获得修为=修炼+打坐+签到修为型奖励, 道韵/道法不计)。写入用 `userDailyStatModel.bumpDailyStat()`（UPSERT 累计，**旁路，失败只告警**，同 addLog），挂点：`doCultivate`、`settleDueMeditation`、`doSignIn`(仅 `tier.type==='cultivation'`)。归日一律用数据库 `CURDATE()`。删除玩家时手动级联清理。新增修为来源时记得补 bumpDailyStat。
+- **世界频道表 `world_messages`（已实装）**：`id(即时间序,增量游标), user_id, content(VARCHAR255 纯文本), created_time`，索引 `(user_id, id)`。全服单频道、无 WebSocket——前端 5 秒轮询 `afterId` 增量拉取。发言在 `controllers/worldChatController.js`：清洗控制字符、最多 200 字、发言间隔走系统配置 `world_chat_cooldown_seconds`（默认 5 秒，0 不限，DB 时钟计），冷却未到 409。消息视图带发送者道号/头像/性别/境界（`models/worldMessageModel.js` 的 MESSAGE_SELECT）。发言不写修行日志（防刷屏噪音）。删除玩家时手动级联清理其消息。
 - **修为圆满**：修炼接口在 `cultivation >= advance_exp` 时停止收益（409「修为已圆满」），状态接口带 `isFull`；前台按钮切换为「突破」打开突破弹窗。签到修为不截断，可能略超圆满值。
 - **境界突破（已实装）**：条件按当前境界行的 `requirement_type` 判定——经验型需修为≥`advance_exp`（成功后扣除，溢出保留）、道韵型需道韵≥`dao_yun_required`（成功后扣除）、道法型需道法≥`dao_law_required`（**不消耗**）、终点（圣人）不可突破。含「雷劫」的类型先按 `tribulation_death_rate` 掷死亡：陨落则 `death_count+1`、对应资源折半、境界不跌。成功/陨落均原子 UPDATE（带境界+资源守卫防并发），写日志 type=`breakthrough`/`death`。逻辑在 `controllers/breakthroughController.js`；免死药/突破丹待丹药服用系统接入。设计文档：`资源文件/机制相关/境界突破机制.md`。
 - **打坐（定时挂机修炼，已实装）**：玩家选定时长（一炷香30/半个时辰60/一个时辰120/两个时辰240 分钟，白名单）入定，**期间不可中断**——修炼/突破/再次打坐接口均拦截，无取消接口（除控制器前置校验外，`applyCultivate`/`applyBreakthroughSuccess`/`applyBreakthroughDeath` 的 `WHERE` 亦加打坐守卫 `meditation_end_time IS NULL OR <= NOW()`，SQL 层兜底并发下入定与修炼/突破同时成功）。期满按时长一次性结算修为：每小时得当前境界圆满修为(`advance_exp`)的 30%（系统配置 `meditation_gain_percent_per_hour`，收敛 [0,1000]），最后四舍五入、保底 1，结算封顶到圆满；`advance_exp=0` 的境界不可打坐。`users` 表 `meditation_start_time/meditation_end_time`（NULL=未打坐，到期结算后清空）；`applyMeditationStart/Settle` 原子读写并以 DB 时钟守卫防并发重复开场/结算。**惰性结算**：`meditationController.settleDueMeditation()` 被打坐/修炼/突破各接口在处理前调用，补结算离线到期的场次（无定时任务）。日志 type=`meditate_start`（入定）/`meditate`（出定）。计算函数 `cultivationGain` 类比的 `utils/meditation.js`，逻辑在 `controllers/meditationController.js`。设计文档：`资源文件/机制相关/打坐机制.md`。
 - **丹药表 `pills` / `pill_grades`**：`pills` 一行一种丹药（id 为数据文件字符串主键，如 `pill_fanren_cultivation`，含 realm/realm_rank/category/effect_mode 等）；`pill_grades` 每丹药 凡(fan)/灵(ling)/道(dao) 三档，`effects` 为 JSON 列（元素字段 `target/targetName/type(percent|flat)/value/duration/hours/polarity`，mysql2 读出时已自动解析为对象）。种子数据 `node/src/data/pills.json`（由 `资源文件/丹药相关/pills.json` 复制，顶层含元信息，取 `.pills`），`seedPills()` 表空时导入（475 种 / 1425 件）。数据访问在 `models/pillModel.js`，后台编辑校验（效果白名单等）在 `controllers/pillController.js`。
 - **丹药背包表 `user_pills`（已实装）**：`id, user_id, pill_id, grade, quantity, obtained_time, updated_time`，唯一键 `(user_id, pill_id, grade)`——同种同品质合并计数。数据访问在 `models/userPillModel.js`：列表/元数据连表 pills+pill_grades；`addUserPills` upsert 累加（预留获得途径）、`removeUserPills` 带 `quantity >= ?` 守卫防超扣（扣到 0 删行）、`transferUserPills` 事务转赠（扣减+累加+回滚）。接口在 `controllers/userPillController.js`（列表筛选/赠送/丢弃），赠送校验目标为 role=0 且 status=1 的玩家、不可赠自己；赠送/丢弃写日志 type=`pill_gift`/`pill_receive`/`pill_discard`。**服用未实装**（药力/buff 系统未接入，前端按钮为占位 toast）；玩家暂无获得丹药的正式途径（炼丹/奖励待做）。删除玩家时连带清理其 `user_pills`（`deleteUser` 手动级联）。
+- **宗门表 `sects`（列表/创建/详情已实装，加入/成员管理未做）**：`id, name(唯一), avatar/background(外链URL, NULL=首字占位/默认洞府图), intro, realm_req(入门大境界名, 空=无要求), realm_req_rank(该大境界最小realms.id, 备加入校验), leader_id(宗主), activity(活跃度, 机制未接入暂由后台调整), created_time`。成员关系记在 `users.sect_id`（NULL=散修），**宗门人数实时聚合无成员表**。创建走 `createSect()` 事务：原子扣 `SECT_CREATE_COST`(5000 灵石, 硬编码于 `controllers/sectController.js`) → 建宗（重名 ER_DUP_ENTRY 译 409）→ 创建者入驻任宗主，写日志 type=`sect_create`；`disbandSect()` 事务解散（清全体成员归属）。删除玩家时其执掌宗门自动解散（`deleteUser` 先调 `disbandSectsLedBy`）。境界要求选项 `sectRealmOptions()` 按大境界 GROUP BY（**别名用 realm_rank，rank 是 MySQL 8 保留字**）。数据访问 `models/sectModel.js`，前后台接口同在 `controllers/sectController.js`。**未打通**：加入/退出、成员列表、宗主前台管理、活跃度来源、图片文件上传（暂外链）——清单见 `计划反馈/宗门系统进度.md`。设计文档：`资源文件/机制相关/宗门机制.md`。
 - **在线态**：登录/注册时置 `is_online=1`，`POST /api/auth/logout`(需鉴权) 置 0；服务启动时 `UPDATE users SET is_online=0` 清零，避免残留。`death_count` 目前无游戏机制写入（突破/死亡系统未做），排行榜查询已就绪，待机制接入后自然填充。
 - **境界表 `realms`**：`id`(境界序号, 1=凡人 … 83=圣人, 非自增, 直接用数据文件的 id 作主键) + 各项属性(hp/ling_qi/attack/defense/spirit)与晋级要求(requirement_type/advance_exp/dao_yun_required/dao_law_required/tribulation_type/tribulation_death_rate/next_realm/note)。种子数据在 `node/src/data/realms.json`（由 `资源文件/境界相关/cultivation_realm_table.json` 复制而来），`seedRealms()` 在表为空时批量导入(用 `pool.query` 的 `VALUES ?` 批插，execute 不支持)。
 - `users.realm_id` 绑定境界，所有人初始化为 `1`(凡人)；`userModel` 的用户视图 `USER_SELECT` 用 `LEFT JOIN realms` 带出 `realm_name`。
@@ -98,6 +129,12 @@ npm run preview    # 预览构建产物
 - `POST /api/user/pills/discard` — `{ pillId, grade, quantity }` 需用户鉴权，丢弃（不可寻回）→ `{ ok, remaining }`
 - `GET /api/user/logs?limit` — 需用户鉴权 → `{ list }` 修行日志（最近 N 条，默认 20，上限 50）
 - `GET /api/user/today` — 需用户鉴权 → 今日修炼统计 `{ cultivateCount, meditationSeconds, cultivationGained, breakthroughSuccessPercent }`（到期打坐先行惰性结算再取数；`breakthroughSuccessPercent` 为当前境界突破成功率=100-雷劫死亡率、无雷劫 100、圣人 null）
+- `GET /api/user/world-chat?afterId&limit` — 需用户鉴权 → `{ list, lastId }` 世界频道消息（afterId=0 取最新 N 条正序，>0 只回更新的消息，limit 默认 30 上限 50）
+- `POST /api/user/world-chat` — `{ content }` 需用户鉴权，发言（≤200 字，间隔见配置 `world_chat_cooldown_seconds`）→ `{ message }`；空内容/超长 400，冷却未到 409
+- `GET /api/user/sects?page&pageSize&keyword&realmReq` — 需用户鉴权 → `{ list, total, page, pageSize, mySectId }` 宗门列表（keyword 搜名称；realmReq 传大境界名精确筛选，`none`=只看无要求；每项带宗主道号/境界与实时人数）
+- `GET /api/user/sects/meta` — 需用户鉴权 → `{ realms:[{realm, realm_rank}], createCost }`（立派境界要求选项与费用）
+- `GET /api/user/sects/:id` — 需用户鉴权 → `{ sect }` 宗门详情；不存在 404（meta 路由需先于 :id 声明）
+- `POST /api/user/sects` — `{ name, intro?, realmReq?, avatarUrl?, backgroundUrl? }` 需用户鉴权，创建宗门（事务扣 5000 灵石，自任宗主）→ `{ sect, user }`；重名/已有宗门/灵石不足 409，名称/境界/链接不合法 400
 - `POST /api/user/avatar` — 需用户鉴权，上传头像（multipart/form-data，文件字段 `avatar`，JPG/PNG/WebP/GIF ≤2MB，落盘后魔数复核）→ `{ user }`（含新 `avatar` 路径）；类型/大小/内容不符 400
 - `POST /api/user/avatar/url` — `{ url }` 需用户鉴权，以外链设置头像（限 http/https、≤255 字符；传空字符串清除恢复默认）→ `{ user }`；格式/协议/长度不符 400
 - `POST /api/auth/logout` — 需用户鉴权，置离线 → `{ ok: true }`
@@ -113,15 +150,20 @@ npm run preview    # 预览构建产物
 - `GET /api/admin/pills/meta` → `{ categories, realms }`（筛选下拉用）
 - `PUT /api/admin/pills/:id` — `{ name?, note? }` → `{ pill }`
 - `PUT /api/admin/pills/:id/grades/:grade` — `{ itemName?, summary?, effects? }`（effects 全量替换并按白名单校验）→ `{ pill }`
+- `GET /api/admin/sects?page&pageSize&keyword` → `{ list, total, page, pageSize }`（宗门列表管理）
+- `PUT /api/admin/sects/:id` — `{ name?, intro?, activity? }` → `{ sect }`；重名 409
+- `DELETE /api/admin/sects/:id` — 解散宗门（清空全体成员 `sect_id`）→ `{ ok }`
 
 ## 前端结构
 
 - **单一登录态**：整个前端只有一套 `token`/`user`（`stores/auth.js` + `api/http.js`，baseURL `/api`）。后台 API（`api/admin.js`）复用同一个 `http` 实例，不再有独立的 admin store/axios。`http` 响应拦截在 401 时清理登录态并跳 `/login`。
-- 路由 `src/router/index.js`：`/login`、`/register`、`/home`（游戏），`/admin`（`AdminLayout` + 子路由 `dashboard`/`users`/`realms`）。**没有 `/admin/login`**——登录后 `LoginView` 按 `auth.user.role` 分流（管理员→`admin-dashboard`，玩家→`home`）。
+- 路由 `src/router/index.js`：`/login`、`/register`、`/home`（游戏）、`/sect`（宗门列表页），`/admin`（`AdminLayout` + 子路由 `dashboard`/`users`/`realms`/`pills`/`sects`/`configs`）。**没有 `/admin/login`**——登录后 `LoginView` 按 `auth.user.role` 分流（管理员→`admin-dashboard`，玩家→`home`）。
+- **路由页过渡动画**：`App.vue` 用 `<RouterView v-slot>` + `<Transition mode="out-in">`，按 `router.afterEach` 动态选名——游戏内页面（home ↔ sect，名单在 `GAME_PAGES`）前进左滑/返回右滑（`page-forward`/`page-back`），其余路由轻淡入（`page-fade`），首次进入/刷新无动画；过渡类挂在路由组件根元素上故用**全局样式**，`prefers-reduced-motion` 降级为纯淡入。路由 `scrollBehavior` 切页回顶，防滚动残留露馅。**防宽高跳动三件套**：`html { overflow-x: clip }`（style.css，整页 translateX 平移的视觉溢出不再触发横向滚动条）；游戏内页面一律与 HUD 同规**锁一屏 + 列表内滚**（body 永无纵向滚动条，页面间视口宽度一致，窄屏媒体查询再放开整页滚动）；页面背景**勿用 `background-attachment: fixed`**（过渡的 transform 会使 fixed 失效致背景闪跳）。新增游戏内页面时把路由名加进 `GAME_PAGES` 即得方向滑动，并遵守上述三条。
+- **宗门列表页 `views/SectView.vue`（独立路由页非弹窗）**：首页左侧导航「宗门」进入，水墨风 + `web/image/dongfu.webp` 背景（由原 PNG sharp 压制 1600w/q80，原件已删；sharp 为 web devDependency）。含名称搜索、境界要求筛选（全部/无要求/各大境界，选项走 `/api/user/sects/meta`）、分页；「开宗立派」按钮开 `components/SectCreateModal.vue`（名称/境界要求/头像链接/背景链接/简介，标注耗灵石 5000，成功回抛 `{sect,user}` 落登录态并刷新）；点击宗门行开 `components/SectDetailModal.vue`（背景横幅+宗徽、宗主道号境界、人数、活跃度、创建时间、简介；无背景图用 dongfu 默认）。本宗行标「本宗」（`mySectId`）。后台 `views/admin/SectsView.vue`：列表/搜索/分页 + 编辑弹窗（名称/活跃度/简介）+ 解散二次确认。
 - 全局守卫按单一 `token` + `user.role` 管控：`requiresAuth` 无 token 跳 `login`；`requiresAdmin` 无 token 跳 `login`、非管理员跳 `home`；`guestOnly` 已登录按角色跳对应首页。
 - **登录/注册壳 `components/AuthShell.vue`**（水墨山水背景 + 金印卡片）：支持可选具名插槽 `aside`——提供则卡片变宽（max-width 900px）为「左展示 / 右表单」二分栏，窄屏（≤860px）改上下堆叠（展示栏收成 240px 横幅）；不提供则保持单栏（登录页不变）。**注册页 `RegisterView.vue` 为二分栏**：右侧信息表单（道号/邮箱/密码/确认密码/性别单选），左侧修仙角色展示随性别即时切换——男修/女修各播放一段视频立绘（`web/video/boy.mp4`、`girl.mp4`，Vite 资源导入，autoplay/loop/muted，`:key` 绑性别强制换源重播）；性别 `gender`(1男/2女) 随注册入库，首页角色卡按性别绑定 `web/image/boy.webp`/`girl.webp` 立绘背景（压制细节见「数据库」章节性别条目）。
 - 后台页面在 `src/views/admin/`（`DashboardView` 含统计卡 + 三张排行榜、`UsersView`、`RealmsView`、`PillsView` 丹药管理、`ConfigView` 系统配置），布局 `src/layouts/AdminLayout.vue`（侧边栏 + 顶栏，用 `useAuthStore` 取管理员信息与登出）。用户管理列表与游戏首页均展示玩家当前境界(`realm_name`)。**头像预览**：通用组件 `components/UserAvatar.vue`（有 `avatar` 显示图片、无/加载失败以道号首字圆形占位；`size` 定尺寸，配色可用 CSS 变量 `--ava-bg/--ava-fg/--ava-line` 覆盖，默认取全局主题变量），已接入后台仪表盘三张排行榜与用户管理列表道号列、前台首页修仙榜。`PillsView` 支持境界/类型/关键字筛选与分页，编辑弹窗 `components/PillFormModal.vue` 可改丹药名/备注及各品质档的成品名/效果数值/持续小时/摘要（摘要为手填文本，改效果后需同步手改）。`ConfigView` 对 `value_type=number` 的配置提供输入框+保存（如修炼间隔秒数），bool 用开关。
-- **游戏首页 `HomeView.vue`** 按参考图（`资源文件/参考图/`）做成水墨仙侠 HUD：顶部资源栏 + 左侧模块导航(修行等) + 角色卡 + 中间境界/修炼/常用功能 + 右侧「修仙榜(境界/在线/死亡三 tab, 各前十, 走 `/api/user/rankings` 真实数据)/今日修炼/修行日志」。自带一套固定水墨浅色配色（组件内 CSS 变量，不随系统深浅变化）。真实数据用道号/境界/时间；**修炼已接后端**：境界卡显示「修为 当前/圆满」真实进度条与单次收益预览，「开始修炼」调 `POST /api/user/cultivate`，冷却期间按钮变「调息中 Ns」倒计时（前端每秒 tick，以服务端 `nextCultivateTime` 为准）；**修为圆满后按钮自动切换为赤金色「突破」**（`cultFull` 计算属性），点击打开 `components/BreakthroughModal.vue`：展示下一境界、条件达成度、雷劫类型与死亡率，确认后调 `POST /api/user/breakthrough`，成功/身陨各有结果页；`done` 事件触发首页全量刷新（profile/修炼状态/日志/榜单）。**修行日志为真实数据**（`/api/user/logs`，修炼/签到成功后即时刷新）。**今日修炼为真实数据**（`/api/user/today`，展示 修炼次数/打坐时长/获得修为/突破几率；修炼、签到、打坐结算、突破完成后调 `loadToday()` 即时刷新，突破几率为当前境界成功率、圣人显示 —）。**打坐（定时挂机修炼）已接后端**：「常用功能」的「打坐」按钮打开 `components/MeditationModal.vue`（择时辰 → 「是否打坐」二次确认强调不可中断 → 入定倒计时无取消 → 出定「功成」结算页）；入定期间境界卡的修炼/突破按钮替换为禁用「入定中 时:分:秒」，「打坐」快捷键也显示剩余倒计时，倒计时归零自动结算（以 `remainSeconds` 客户端锚定，弹窗开则由弹窗结算、闭则由首页兜底）并全量刷新（profile/修炼/日志/榜单）+toast。**丹药背包已接后端**：左侧导航「丹药」打开 `components/PillBagModal.vue`（大弹窗列表：品质/境界/类型下拉 + 关键字搜索 + 分页，筛选下拉走 `/api/user/pills/meta` 仅含实际持有；变动后本页清空自动回退一页），点击条目弹出 `components/PillDetailModal.vue` 小窗（药力逐条展示：正面金色/负面赤色、临时N小时/永久等时效 + 摘要/备注），操作按钮**服用**（药力系统未接入，暂为占位 toast）、**赠送**（填道号+数量，成功后双方各记一条日志）、**丢弃**（选数量+不可寻回警示）；`changed` 事件回抛剩余数量，扣到 0 关详情窗，背包列表与首页日志即时刷新。宗门等其余系统仍为占位展示（点击提示"敬请期待"）。退出按钮会调 `apiLogout` 置离线。
+- **游戏首页 `HomeView.vue`** 按参考图（`资源文件/参考图/`）做成水墨仙侠 HUD：顶部资源栏 + 左侧模块导航(修行等) + 角色卡 + 中间境界/修炼/常用功能 + 右侧「修仙榜(境界/在线/死亡三 tab, 各前十, 走 `/api/user/rankings` 真实数据)/今日修炼/修行日志」。自带一套固定水墨浅色配色（组件内 CSS 变量，不随系统深浅变化）。真实数据用道号/境界/时间；**修炼已接后端**：境界卡显示「修为 当前/圆满」真实进度条与单次收益预览，「开始修炼」调 `POST /api/user/cultivate`，冷却期间按钮变「调息中 Ns」倒计时（前端每秒 tick，以服务端 `nextCultivateTime` 为准）；**修为圆满后按钮自动切换为赤金色「突破」**（`cultFull` 计算属性），点击打开 `components/BreakthroughModal.vue`：展示下一境界、条件达成度、雷劫类型与死亡率，确认后调 `POST /api/user/breakthrough`，成功/身陨各有结果页；`done` 事件触发首页全量刷新（profile/修炼状态/日志/榜单）。**修行日志为真实数据**（`/api/user/logs`，修炼/签到成功后即时刷新）。**今日修炼为真实数据**（`/api/user/today`，展示 修炼次数/打坐时长/获得修为/突破几率；修炼、签到、打坐结算、突破完成后调 `loadToday()` 即时刷新，突破几率为当前境界成功率、圣人显示 —）。**打坐（定时挂机修炼）已接后端**：「常用功能」的「打坐」按钮打开 `components/MeditationModal.vue`（择时辰 → 「是否打坐」二次确认强调不可中断 → 入定倒计时无取消 → 出定「功成」结算页）；入定期间境界卡的修炼/突破按钮替换为禁用「入定中 时:分:秒」，「打坐」快捷键也显示剩余倒计时，倒计时归零自动结算（以 `remainSeconds` 客户端锚定，弹窗开则由弹窗结算、闭则由首页兜底）并全量刷新（profile/修炼/日志/榜单）+toast。**丹药背包已接后端**：左侧导航「丹药」打开 `components/PillBagModal.vue`（大弹窗列表：品质/境界/类型下拉 + 关键字搜索 + 分页，筛选下拉走 `/api/user/pills/meta` 仅含实际持有；变动后本页清空自动回退一页），点击条目弹出 `components/PillDetailModal.vue` 小窗（药力逐条展示：正面金色/负面赤色、临时N小时/永久等时效 + 摘要/备注），操作按钮**服用**（药力系统未接入，暂为占位 toast）、**赠送**（填道号+数量，成功后双方各记一条日志）、**丢弃**（选数量+不可寻回警示）；`changed` 事件回抛剩余数量，扣到 0 关详情窗，背包列表与首页日志即时刷新。**世界频道已接后端**（中列常用功能下方的聊天卡片，占中列余高、消息区内滚）：进页拉最新 30 条，此后每 5 秒 `afterId` 增量轮询（页签隐藏时跳过；停在底部才跟随滚动，翻历史不打断），客户端最多留 100 条；输入框 200 字上限，「传音」按钮发言（冷却/校验由服务端把关，报错走 toast），自己的消息道号金色高亮，消息带头像/境界标签/时间。宗门等其余系统仍为占位展示（点击提示"敬请期待"）。退出按钮会调 `apiLogout` 置离线。
 - 主题：`src/style.css` 用 CSS 变量定义配色，通过 `@media (prefers-color-scheme: dark)` 适配系统深/浅色；表单基元类（`.field/.btn/.form-error`）为全局样式，页面级样式用 SFC `scoped`。
 - **全局通知（右上角 toast）**：`composables/toast.js`（模块级单例队列）+ `components/ToastHost.vue`（挂在 `App.vue`，fixed 右上角，info/success/error 三类，自动消失、点击关闭）。**页面级提醒一律走 toast**（首页修炼结果/占位提示、后台各页加载与操作报错、配置保存反馈），不再用页内横幅；表单内的字段校验错误仍留在表单旁（登录/注册/各编辑弹窗）。新页面报错请用 `useToast().error(...)`。
 

@@ -1,9 +1,9 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiLogout } from '../api/auth.js'
-import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus, apiTodayStats } from '../api/game.js'
+import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus, apiTodayStats, apiWorldChat, apiWorldChatSend } from '../api/game.js'
 import SignInModal from '../components/SignInModal.vue'
 import BreakthroughModal from '../components/BreakthroughModal.vue'
 import MeditationModal from '../components/MeditationModal.vue'
@@ -59,6 +59,81 @@ const rankTabs = [
 
 // 左侧功能栏（游戏模块，多数待开发）
 const navItems = ['修行', '洞府', '功法', '法宝', '丹药', '伙伴', '宗门', '历炼', '仙盟', '探索']
+
+// 世界频道（全服聊天：进页拉最新一批，此后 5 秒一轮增量拉取；发言冷却由服务端把关）
+const chatMsgs = ref([])
+const chatInput = ref('')
+const chatSending = ref(false)
+const chatListEl = ref(null)
+let chatLastId = 0
+let chatTimer = null
+
+function scrollChatToBottom() {
+  nextTick(() => {
+    const el = chatListEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
+}
+
+// 追加消息（按 id 去重，客户端最多留 100 条）
+function appendChatMsgs(list) {
+  if (!list?.length) return
+  const known = new Set(chatMsgs.value.map((m) => m.id))
+  const fresh = list.filter((m) => !known.has(m.id))
+  if (!fresh.length) return
+  chatMsgs.value.push(...fresh)
+  if (chatMsgs.value.length > 100) {
+    chatMsgs.value.splice(0, chatMsgs.value.length - 100)
+  }
+  chatLastId = chatMsgs.value[chatMsgs.value.length - 1].id
+}
+
+async function loadChat() {
+  try {
+    const r = await apiWorldChat()
+    chatMsgs.value = r.list
+    chatLastId = r.lastId || 0
+    scrollChatToBottom()
+  } catch {
+    /* 频道拉取失败不影响主界面 */
+  }
+}
+
+async function pollChat() {
+  if (document.hidden) return // 页签后台时省一轮请求
+  try {
+    const r = await apiWorldChat(chatLastId)
+    if (!r.list.length) return
+    const el = chatListEl.value
+    // 原本就停在底部才跟随滚动，翻看历史时不打断
+    const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    appendChatMsgs(r.list)
+    if (nearBottom) scrollChatToBottom()
+  } catch {
+    /* 轮询失败下轮再试 */
+  }
+}
+
+async function sendChat() {
+  const text = chatInput.value.trim()
+  if (!text || chatSending.value) return
+  chatSending.value = true
+  try {
+    const r = await apiWorldChatSend(text)
+    chatInput.value = ''
+    if (r.message) appendChatMsgs([r.message])
+    scrollChatToBottom()
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    chatSending.value = false
+  }
+}
+
+// 消息时间：MM-DD HH:MM（与修行日志同格式）
+function fmtChatTime(t) {
+  return fmt(t).slice(5, 16)
+}
 
 // 数值格式化：大数转 万/亿
 function trimNum(x) {
@@ -324,10 +399,11 @@ function onFunc(name) {
   else soon(name)
 }
 
-// 左侧导航点击：丹药打开背包，修行为当前页，其余暂为占位
+// 左侧导航点击：丹药打开背包，宗门进入宗门列表页，修行为当前页，其余暂为占位
 function onNav(name, index) {
   if (index === 0) return
   if (name === '丹药') pillBagVisible.value = true
+  else if (name === '宗门') router.push({ name: 'sect' })
   else soon(name)
 }
 
@@ -410,13 +486,16 @@ onMounted(async () => {
   }
   loadLogs()
   loadToday()
+  loadChat()
   tickTimer = setInterval(() => {
     nowTick.value = Date.now()
   }, 1000)
+  chatTimer = setInterval(pollChat, 5000)
 })
 
 onUnmounted(() => {
   if (tickTimer) clearInterval(tickTimer)
+  if (chatTimer) clearInterval(chatTimer)
 })
 </script>
 
@@ -478,11 +557,19 @@ onUnmounted(() => {
           <div><dt>境界</dt><dd class="gold">{{ realmName }}</dd></div>
           <div><dt>性别</dt><dd>{{ genderLabel }}</dd></div>
           <div><dt>状态</dt><dd>{{ auth.user.status === 1 ? '正常' : '禁用' }}</dd></div>
-          <div><dt>灵根</dt><dd>金木水火土</dd></div>
           <div><dt>入道</dt><dd>{{ fmt(auth.user.register_time) }}</dd></div>
           <div><dt>上次登录</dt><dd>{{ fmt(auth.user.login_time) }}</dd></div>
           <div><dt>邮箱</dt><dd class="ellip">{{ auth.user.email }}</dd></div>
         </dl>
+        <!-- 修炼增益（自中列移入；凡人无加成，功法/丹药系统接入后走真实数据） -->
+        <div class="char-buffs">
+          <h4>修炼增益</h4>
+          <div class="buff-grid">
+            <div v-for="b in buffs" :key="b[0]" class="buff">
+              <span>{{ b[0] }}</span><b>{{ b[1] }}</b>
+            </div>
+          </div>
+        </div>
         <button class="ghost-btn" @click="soon('详细属性')">详细属性 ›</button>
       </aside>
 
@@ -516,15 +603,6 @@ onUnmounted(() => {
           </button>
         </section>
 
-        <section class="card buffs">
-          <h3 class="panel-title">修炼增益</h3>
-          <div class="buff-grid">
-            <div v-for="b in buffs" :key="b[0]" class="buff">
-              <span>{{ b[0] }}</span><b>{{ b[1] }}</b>
-            </div>
-          </div>
-        </section>
-
         <section class="card funcs">
           <h3 class="panel-title">常用功能</h3>
           <div class="func-row">
@@ -539,6 +617,41 @@ onUnmounted(() => {
               <span class="func-lbl">{{ f === '打坐' && medActive ? fmtClock(medRemain) : f }}</span>
             </button>
           </div>
+        </section>
+
+        <!-- 世界频道（全服聊天，5 秒轮询增量拉取） -->
+        <section class="card chat">
+          <h3 class="panel-title">世界频道</h3>
+          <div ref="chatListEl" class="chat-list">
+            <div
+              v-for="m in chatMsgs"
+              :key="m.id"
+              class="chat-msg"
+              :class="{ mine: m.user_id === auth.user.id }"
+            >
+              <UserAvatar class="chat-ava" :avatar="m.avatar" :name="m.dao_name" :size="24" />
+              <div class="chat-main">
+                <div class="chat-meta">
+                  <span class="chat-name">{{ m.dao_name || '无名散修' }}</span>
+                  <span class="chat-realm">{{ m.realm_name || '凡人' }}</span>
+                  <span class="chat-time">{{ fmtChatTime(m.created_time) }}</span>
+                </div>
+                <p class="chat-text">{{ m.content }}</p>
+              </div>
+            </div>
+            <p v-if="chatMsgs.length === 0" class="chat-empty">此界静谧，尚无道友传音</p>
+          </div>
+          <form class="chat-form" @submit.prevent="sendChat">
+            <input
+              v-model="chatInput"
+              type="text"
+              maxlength="200"
+              placeholder="传音此界，与众道友论道…"
+            />
+            <button type="submit" class="chat-send" :disabled="chatSending || !chatInput.trim()">
+              {{ chatSending ? '传音中' : '传音' }}
+            </button>
+          </form>
         </section>
       </main>
 
@@ -762,10 +875,9 @@ onUnmounted(() => {
   align-items: stretch;
 }
 
-/* 各列在列内自行滚动（隐藏滚动条），避免整页出现滚动条 */
+/* 左两列在列内自行滚动（隐藏滚动条），避免整页出现滚动条 */
 .rail,
-.char,
-.mid {
+.char {
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
@@ -773,12 +885,13 @@ onUnmounted(() => {
   -ms-overflow-style: none;
 }
 .rail::-webkit-scrollbar,
-.char::-webkit-scrollbar,
-.mid::-webkit-scrollbar {
+.char::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
-/* 右列不整列滚动：作为定高 flex 容器，滚动交给内部「修行日志」卡片 */
+/* 中右两列不整列滚动：作为定高 flex 容器锁在一屏内，
+   滚动交给内部占余高的卡片（中列「世界频道」/右列「修行日志」） */
+.mid,
 .side {
   min-height: 0;
   max-height: 100%;
@@ -932,26 +1045,35 @@ onUnmounted(() => {
 }
 .ghost-btn:hover { color: var(--gold); border-color: var(--gold); }
 
-/* 中列 */
+/* 中列：境界/常用功能定高，「世界频道」占余高（同右列日志卡模式） */
 .mid {
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
 }
-.realm { text-align: center; }
+.mid > section:not(.chat) {
+  flex: 0 0 auto;
+}
+/* 境界卡整体压紧，给下方「世界频道」让出高度 */
+.realm {
+  text-align: center;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.realm .panel-title { margin-bottom: 8px; }
 .realm-name {
-  margin: 10px 0 6px;
-  font-size: 40px;
+  margin: 4px 0 4px;
+  font-size: 30px;
   font-weight: 700;
-  letter-spacing: 6px;
+  letter-spacing: 5px;
   color: var(--gold);
   text-shadow: 0 2px 10px rgba(184, 147, 63, 0.25);
 }
 .cultivate-info { font-size: 14px; color: var(--ink); }
 .bar {
-  height: 12px;
-  margin: 12px auto;
+  height: 10px;
+  margin: 8px auto;
   max-width: 460px;
   background: rgba(60, 56, 46, 0.12);
   border-radius: 999px;
@@ -965,10 +1087,10 @@ onUnmounted(() => {
 }
 .cultivate-sub { font-size: 12px; color: var(--ink-mut); }
 .gold-btn {
-  margin-top: 14px;
-  padding: 12px 40px;
+  margin-top: 10px;
+  padding: 9px 34px;
   font-family: inherit;
-  font-size: 17px;
+  font-size: 15px;
   letter-spacing: 3px;
   color: #4a3a12;
   background: linear-gradient(180deg, #f2dda6, #d4af5b);
@@ -1005,6 +1127,19 @@ onUnmounted(() => {
 }
 .buff span { color: var(--ink-mut); }
 .buff b { color: var(--gold); }
+/* 角色卡内「修炼增益」小节（自中列移入）：窄卡里网格收紧 */
+.char-buffs { margin-top: 14px; }
+.char-buffs h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--ink-h);
+  padding-left: 8px;
+  border-left: 3px solid var(--gold);
+}
+.char-buffs .buff-grid { gap: 2px 14px; }
+.char-buffs .buff { font-size: 13px; }
 
 .func-row {
   display: flex;
@@ -1045,6 +1180,107 @@ onUnmounted(() => {
 .func.meditating .func-lbl {
   color: var(--gold);
   font-variant-numeric: tabular-nums;
+}
+
+/* 世界频道：占中列余高（不把列撑高），消息区内部滚动 */
+.card.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 160px;
+  overflow: hidden;
+}
+.card.chat .panel-title {
+  flex: 0 0 auto;
+}
+.chat-list {
+  flex: 1 1 auto;
+  min-height: 60px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+.chat-msg {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.chat-ava {
+  margin-top: 2px;
+  --ava-bg: rgba(60, 56, 46, 0.08);
+  --ava-fg: var(--ink-mut);
+  --ava-line: var(--panel-line);
+}
+.chat-main { min-width: 0; }
+.chat-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+.chat-name { color: var(--ink-h); font-weight: 600; }
+.chat-msg.mine .chat-name { color: var(--gold); }
+.chat-realm {
+  color: var(--ink-mut);
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  padding: 0 5px;
+  font-size: 11px;
+}
+.chat-time { color: var(--ink-mut); font-size: 11px; }
+.chat-text {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--ink-mut);
+  font-size: 13px;
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chat-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink-h);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--panel-line);
+  border-radius: 9px;
+  outline: none;
+}
+.chat-form input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(184, 147, 63, 0.14);
+}
+.chat-send {
+  flex-shrink: 0;
+  padding: 9px 18px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #fff;
+  background: linear-gradient(180deg, #c9a558, var(--gold));
+  border: 1px solid rgba(140, 108, 40, 0.5);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.chat-send:hover:not(:disabled) { filter: brightness(1.06); }
+.chat-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 右列：整列锁定一屏高，前两块固定，「修行日志」占余高并内部滚动 */
@@ -1216,6 +1452,12 @@ onUnmounted(() => {
     min-height: 0;
     overflow: visible;
   }
+  /* 世界频道：窄屏下卡片随内容排布，消息区固定高度内滚，不把页面拉长 */
+  .card.chat {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .chat-list { max-height: 320px; }
   .log {
     overflow-y: visible;
     max-height: none;

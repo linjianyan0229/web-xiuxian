@@ -20,6 +20,12 @@ const routes = [
     component: () => import('../views/HomeView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/sect',
+    name: 'sect',
+    component: () => import('../views/SectView.vue'),
+    meta: { requiresAuth: true },
+  },
 
   /* ---------- 后台管理（登录统一走 /login，按 role 进入） ---------- */
   {
@@ -49,6 +55,11 @@ const routes = [
         component: () => import('../views/admin/PillsView.vue'),
       },
       {
+        path: 'sects',
+        name: 'admin-sects',
+        component: () => import('../views/admin/SectsView.vue'),
+      },
+      {
         path: 'configs',
         name: 'admin-configs',
         component: () => import('../views/admin/ConfigView.vue'),
@@ -60,6 +71,8 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+  // 切页回到顶部（页面过渡动画期间滚动残留会露馅）
+  scrollBehavior: () => ({ left: 0, top: 0 }),
 })
 
 // 路由守卫：单一登录态（token），后台准入由用户 role 决定

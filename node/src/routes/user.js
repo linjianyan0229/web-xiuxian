@@ -7,6 +7,8 @@ import { getBreakthroughStatus, doBreakthrough } from '../controllers/breakthrou
 import { getMeditationStatus, startMeditation } from '../controllers/meditationController.js'
 import { avatarUpload, uploadAvatar, setAvatarUrl } from '../controllers/avatarController.js'
 import { getMyPills, getMyPillMeta, giftPill, discardPill } from '../controllers/userPillController.js'
+import { getWorldMessages, postWorldMessage } from '../controllers/worldChatController.js'
+import { getSects, getSectMeta, getSectDetail, doCreateSect } from '../controllers/sectController.js'
 
 const router = Router()
 
@@ -38,5 +40,13 @@ router.get('/today', authRequired, getTodayStats)
 // 需鉴权：头像 —— 上传图片（multipart/form-data，文件字段名 avatar）/ 以外链 URL 设置（传空清除）
 router.post('/avatar', authRequired, avatarUpload, uploadAvatar)
 router.post('/avatar/url', authRequired, setAvatarUrl)
+// 需鉴权：世界频道 —— 拉取消息（afterId 增量轮询）/ 发言（冷却见系统配置）
+router.get('/world-chat', authRequired, getWorldMessages)
+router.post('/world-chat', authRequired, postWorldMessage)
+// 需鉴权：宗门 —— 列表（搜索/筛选/分页）/ 元数据 / 详情 / 创建（meta 须先于 :id 声明）
+router.get('/sects/meta', authRequired, getSectMeta)
+router.get('/sects', authRequired, getSects)
+router.get('/sects/:id', authRequired, getSectDetail)
+router.post('/sects', authRequired, doCreateSect)
 
 export default router

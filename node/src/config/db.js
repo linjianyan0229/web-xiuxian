@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
   comprehension TINYINT UNSIGNED NOT NULL DEFAULT 1      COMMENT '悟性(%), 上限100, 注册时随机生成',
   avatar        VARCHAR(255)    DEFAULT NULL             COMMENT '头像访问路径(/api/uploads/avatars/..., NULL=默认头像)',
   gender        TINYINT         NOT NULL DEFAULT 1       COMMENT '性别: 1=男, 2=女',
+  sect_id       BIGINT UNSIGNED DEFAULT NULL             COMMENT '所属宗门(sects.id, NULL=散修)',
   register_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
   last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
@@ -115,6 +116,25 @@ CREATE TABLE IF NOT EXISTS user_pills (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='玩家丹药背包表';
 `
 
+// 建表语句：宗门表（成员关系记在 users.sect_id 上，宗门人数由其聚合得出，无独立成员表）
+const CREATE_SECTS_TABLE = `
+CREATE TABLE IF NOT EXISTS sects (
+  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '宗门ID',
+  name           VARCHAR(32)     NOT NULL              COMMENT '宗门名称',
+  avatar         VARCHAR(255)    DEFAULT NULL          COMMENT '宗门头像(外链URL, NULL=名称首字占位)',
+  background     VARCHAR(255)    DEFAULT NULL          COMMENT '宗门背景图(外链URL, NULL=默认洞府图)',
+  intro          VARCHAR(500)    NOT NULL DEFAULT ''   COMMENT '宗门简介',
+  realm_req      VARCHAR(32)     NOT NULL DEFAULT ''   COMMENT '加入所需大境界(空=无要求)',
+  realm_req_rank INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '境界要求序号(该大境界最小realms.id, 0=无要求)',
+  leader_id      BIGINT UNSIGNED NOT NULL              COMMENT '宗主(users.id)',
+  activity       INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '活跃度(机制未接入, 暂由后台调整)',
+  created_time   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_name (name),
+  KEY idx_leader (leader_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='宗门表';
+`
+
 // 建表语句：修行日志表（记录玩家每次操作：注册/登录/签到/修炼等，前台首页「修行日志」展示）
 const CREATE_PLAYER_LOGS_TABLE = `
 CREATE TABLE IF NOT EXISTS player_logs (
@@ -138,6 +158,18 @@ CREATE TABLE IF NOT EXISTS user_daily_stats (
   cultivation_gained BIGINT UNSIGNED NOT NULL DEFAULT 0    COMMENT '当日获得修为(修炼+打坐+签到)',
   PRIMARY KEY (user_id, stat_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='玩家每日修炼统计表';
+`
+
+// 建表语句：世界频道消息表（前台首页「世界频道」聊天区块；全服一个频道，轮询增量拉取）
+const CREATE_WORLD_MESSAGES_TABLE = `
+CREATE TABLE IF NOT EXISTS world_messages (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '消息ID(即时间序,增量拉取游标)',
+  user_id      BIGINT UNSIGNED NOT NULL              COMMENT '发送者(users.id)',
+  content      VARCHAR(255)    NOT NULL              COMMENT '消息内容(纯文本,前端转义展示)',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发送时间',
+  PRIMARY KEY (id),
+  KEY idx_user (user_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='世界频道消息表';
 `
 
 // 建表语句：系统配置表（键值对，后台「系统配置列表」用；如签到功能开关等）
@@ -174,6 +206,13 @@ const DEFAULT_SYSTEM_CONFIGS = [
     value: '30',
     label: '打坐每小时收益(%)',
     description: '打坐每小时获得的修为占当前境界圆满修为(advance_exp)的百分比；期满一次性结算并封顶到圆满。',
+    valueType: 'number',
+  },
+  {
+    key: 'world_chat_cooldown_seconds',
+    value: '5',
+    label: '世界频道发言间隔(秒)',
+    description: '同一玩家两次发言之间的最小间隔秒数，防刷屏；0 为不限制。',
     valueType: 'number',
   },
 ]
@@ -344,8 +383,10 @@ export async function initDatabase() {
   await pool.query(CREATE_PILLS_TABLE)
   await pool.query(CREATE_PILL_GRADES_TABLE)
   await pool.query(CREATE_USER_PILLS_TABLE)
+  await pool.query(CREATE_SECTS_TABLE)
   await pool.query(CREATE_PLAYER_LOGS_TABLE)
   await pool.query(CREATE_USER_DAILY_STATS_TABLE)
+  await pool.query(CREATE_WORLD_MESSAGES_TABLE)
   await pool.query(CREATE_SYSTEM_CONFIGS_TABLE)
 
   // 迁移（老库补列）
@@ -403,6 +444,11 @@ export async function initDatabase() {
     'users',
     'gender',
     "gender TINYINT NOT NULL DEFAULT 1 COMMENT '性别: 1=男, 2=女' AFTER avatar"
+  )
+  await ensureColumn(
+    'users',
+    'sect_id',
+    "sect_id BIGINT UNSIGNED DEFAULT NULL COMMENT '所属宗门(sects.id, NULL=散修)' AFTER gender"
   )
   await ensureColumn(
     'users',

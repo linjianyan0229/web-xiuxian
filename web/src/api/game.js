@@ -38,3 +38,13 @@ export const apiPlayerLogs = (limit) => http.get('/user/logs', { params: { limit
 
 // 今日修炼统计（修炼次数/打坐时长/获得修为 + 突破成功率，首页「今日修炼」面板）
 export const apiTodayStats = () => http.get('/user/today')
+
+// 世界频道：拉取消息（afterId>0 时增量轮询，只回新消息）/ 发言
+export const apiWorldChat = (afterId = 0) => http.get('/user/world-chat', { params: { afterId } })
+export const apiWorldChatSend = (content) => http.post('/user/world-chat', { content })
+
+// 宗门：列表（搜索/筛选/分页）/ 元数据（境界要求选项+立派费用）/ 详情 / 创建（扣灵石）
+export const apiSects = (params) => http.get('/user/sects', { params })
+export const apiSectMeta = () => http.get('/user/sects/meta')
+export const apiSectDetail = (id) => http.get(`/user/sects/${id}`)
+export const apiSectCreate = (payload) => http.post('/user/sects', payload)
