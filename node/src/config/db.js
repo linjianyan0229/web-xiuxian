@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   dao_yun       BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '道韵',
   dao_law       BIGINT UNSIGNED NOT NULL DEFAULT 0       COMMENT '道法领悟',
   comprehension TINYINT UNSIGNED NOT NULL DEFAULT 1      COMMENT '悟性(%), 上限100, 注册时随机生成',
+  avatar        VARCHAR(255)    DEFAULT NULL             COMMENT '头像访问路径(/api/uploads/avatars/..., NULL=默认头像)',
   register_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
   login_time    DATETIME        DEFAULT NULL             COMMENT '最近登录时间',
   last_sign_time DATETIME       DEFAULT NULL             COMMENT '上次每日签到时间',
@@ -98,6 +99,21 @@ CREATE TABLE IF NOT EXISTS pill_grades (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='丹药品质表';
 `
 
+// 建表语句：玩家丹药背包表（同一玩家同种丹药同品质合并为一行计数量）
+const CREATE_USER_PILLS_TABLE = `
+CREATE TABLE IF NOT EXISTS user_pills (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  user_id       BIGINT UNSIGNED NOT NULL              COMMENT '玩家ID(users.id)',
+  pill_id       VARCHAR(64)     NOT NULL              COMMENT '丹药ID(pills.id)',
+  grade         VARCHAR(8)      NOT NULL              COMMENT '品质: fan/ling/dao',
+  quantity      INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '持有数量',
+  obtained_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次获得时间',
+  updated_time  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近变动时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_pill_grade (user_id, pill_id, grade)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='玩家丹药背包表';
+`
+
 // 建表语句：修行日志表（记录玩家每次操作：注册/登录/签到/修炼等，前台首页「修行日志」展示）
 const CREATE_PLAYER_LOGS_TABLE = `
 CREATE TABLE IF NOT EXISTS player_logs (
@@ -109,6 +125,18 @@ CREATE TABLE IF NOT EXISTS player_logs (
   PRIMARY KEY (id),
   KEY idx_user_time (user_id, created_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='修行日志表';
+`
+
+// 建表语句：玩家每日修炼统计表（前台首页「今日修炼」面板用；按天一行，UPSERT 累计）
+const CREATE_USER_DAILY_STATS_TABLE = `
+CREATE TABLE IF NOT EXISTS user_daily_stats (
+  user_id            BIGINT UNSIGNED NOT NULL              COMMENT '玩家ID(users.id)',
+  stat_date          DATE            NOT NULL              COMMENT '统计日期(按数据库时区归日)',
+  cultivate_count    INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '当日修炼次数',
+  meditation_seconds INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '当日打坐时长(秒, 按结算日入账)',
+  cultivation_gained BIGINT UNSIGNED NOT NULL DEFAULT 0    COMMENT '当日获得修为(修炼+打坐+签到)',
+  PRIMARY KEY (user_id, stat_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='玩家每日修炼统计表';
 `
 
 // 建表语句：系统配置表（键值对，后台「系统配置列表」用；如签到功能开关等）
@@ -314,7 +342,9 @@ export async function initDatabase() {
   await pool.query(CREATE_REALMS_TABLE)
   await pool.query(CREATE_PILLS_TABLE)
   await pool.query(CREATE_PILL_GRADES_TABLE)
+  await pool.query(CREATE_USER_PILLS_TABLE)
   await pool.query(CREATE_PLAYER_LOGS_TABLE)
+  await pool.query(CREATE_USER_DAILY_STATS_TABLE)
   await pool.query(CREATE_SYSTEM_CONFIGS_TABLE)
 
   // 迁移（老库补列）
@@ -362,6 +392,11 @@ export async function initDatabase() {
     'users',
     'comprehension',
     "comprehension TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '悟性(%), 上限100, 注册时随机生成' AFTER dao_law"
+  )
+  await ensureColumn(
+    'users',
+    'avatar',
+    "avatar VARCHAR(255) DEFAULT NULL COMMENT '头像访问路径(/api/uploads/avatars/..., NULL=默认头像)' AFTER comprehension"
   )
   await ensureColumn(
     'users',

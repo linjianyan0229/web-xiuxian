@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import apiRouter from './routes/index.js'
 import { config } from './config/env.js'
+import { UPLOADS_DIR } from './config/uploads.js'
 
 const app = express()
 
@@ -21,6 +22,9 @@ if (allowedOrigins.length > 0) {
 }
 
 app.use(express.json())
+
+// 上传文件静态托管（头像等）；文件名带时间戳不复用，可放心长缓存
+app.use('/api/uploads', express.static(UPLOADS_DIR, { maxAge: '7d' }))
 
 app.use('/api', apiRouter)
 

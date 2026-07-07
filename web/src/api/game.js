@@ -19,5 +19,22 @@ export const apiBreakthrough = () => http.post('/user/breakthrough')
 export const apiMeditationStatus = () => http.get('/user/meditation')
 export const apiMeditationStart = (minutes) => http.post('/user/meditation', { minutes })
 
+// 丹药背包：列表（筛选/分页）/ 筛选元数据 / 赠送 / 丢弃
+export const apiMyPills = (params) => http.get('/user/pills', { params })
+export const apiMyPillMeta = () => http.get('/user/pills/meta')
+export const apiPillGift = (payload) => http.post('/user/pills/gift', payload)
+export const apiPillDiscard = (payload) => http.post('/user/pills/discard', payload)
+
+// 头像：上传本地图片（multipart）/ 以外链 URL 设置（url 传空字符串恢复默认首字占位）
+export const apiUploadAvatar = (file) => {
+  const fd = new FormData()
+  fd.append('avatar', file)
+  return http.post('/user/avatar', fd)
+}
+export const apiSetAvatarUrl = (url) => http.post('/user/avatar/url', { url })
+
 // 修行日志（最近 N 条）
 export const apiPlayerLogs = (limit) => http.get('/user/logs', { params: { limit } })
+
+// 今日修炼统计（修炼次数/打坐时长/获得修为 + 突破成功率，首页「今日修炼」面板）
+export const apiTodayStats = () => http.get('/user/today')

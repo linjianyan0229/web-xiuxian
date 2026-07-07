@@ -3,10 +3,13 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiLogout } from '../api/auth.js'
-import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus } from '../api/game.js'
+import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus, apiTodayStats } from '../api/game.js'
 import SignInModal from '../components/SignInModal.vue'
 import BreakthroughModal from '../components/BreakthroughModal.vue'
 import MeditationModal from '../components/MeditationModal.vue'
+import PillBagModal from '../components/PillBagModal.vue'
+import UserAvatar from '../components/UserAvatar.vue'
+import AvatarModal from '../components/AvatarModal.vue'
 import { useToast } from '../composables/toast.js'
 
 const router = useRouter()
@@ -25,6 +28,17 @@ let tickTimer = null
 
 // 境界突破弹窗
 const btVisible = ref(false)
+
+// 丹药背包弹窗（左侧导航「丹药」）
+const pillBagVisible = ref(false)
+
+// 更换头像弹窗（点击角色卡头像）
+const avatarVisible = ref(false)
+// 头像更换成功：后端已回最新用户视图，直接落到登录态并刷新日志
+function onAvatarUpdated(u) {
+  auth.user = u
+  loadLogs()
+}
 
 // 打坐（定时挂机修炼）：状态 + 弹窗 + 到期自动结算
 const med = ref(null)
@@ -80,12 +94,36 @@ const buffs = [
   ['突破几率', '+0%'],
   ['修炼速度', '+0%'],
 ]
-// 今日修炼（待修炼系统接入）
-const today = [
-  ['修炼时长', '00:00:00'],
-  ['获得修为', '0'],
-  ['突破几率', '0%'],
-]
+// 今日修炼：真实统计（后端 user_daily_stats 按天累计，/api/user/today）
+const todayStats = ref(null)
+async function loadToday() {
+  try {
+    todayStats.value = await apiTodayStats()
+  } catch {
+    /* 统计拉取失败不影响主界面 */
+  }
+}
+// 秒数 → HH:MM:SS（面板固定带小时位）
+function fmtHMS(sec) {
+  let s = Math.max(0, Math.floor(Number(sec) || 0))
+  const h = Math.floor(s / 3600)
+  s -= h * 3600
+  const m = Math.floor(s / 60)
+  s -= m * 60
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(h)}:${p(m)}:${p(s)}`
+}
+const today = computed(() => {
+  const t = todayStats.value
+  const rate = t?.breakthroughSuccessPercent
+  return [
+    ['修炼次数', t ? `${t.cultivateCount} 次` : '—'],
+    ['打坐时长', t ? fmtHMS(t.meditationSeconds) : '—'],
+    ['获得修为', t ? fmtCn(t.cultivationGained) : '—'],
+    // 突破几率为当前境界突破成功率（100-雷劫死亡率）；圣人无下一境显示 —
+    ['突破几率', t ? (rate == null ? '—' : `${rate}%`) : '—'],
+  ]
+})
 
 function fmt(t) {
   return t ? String(t).replace('T', ' ').slice(0, 19) : '—'
@@ -125,6 +163,7 @@ async function onBreakthroughDone() {
     /* 同上 */
   }
   loadLogs()
+  loadToday()
   try {
     ranks.value = await apiGameRankings()
   } catch {
@@ -191,6 +230,7 @@ async function doCultivate() {
     if (auth.user) auth.user.cultivation = r.cultivation
     toast.success(`修炼有成，修为 +${fmtCn(r.gained)}`)
     loadLogs()
+    loadToday()
   } catch (e) {
     toast.error(e.message)
     // 冷却未到/并发抢先等情况，以服务端状态为准
@@ -222,6 +262,7 @@ async function onMeditationSettled(settled) {
     /* 同上 */
   }
   loadLogs()
+  loadToday()
   try {
     ranks.value = await apiGameRankings()
   } catch {
@@ -270,6 +311,13 @@ function onFunc(name) {
   else soon(name)
 }
 
+// 左侧导航点击：丹药打开背包，修行为当前页，其余暂为占位
+function onNav(name, index) {
+  if (index === 0) return
+  if (name === '丹药') pillBagVisible.value = true
+  else soon(name)
+}
+
 // 打坐倒计时归零：弹窗关闭时由本页自动结算（弹窗打开时交给弹窗，避免重复结算/提示）
 watch(medRemain, (r, prev) => {
   if (!medVisible.value && med.value?.meditating && r === 0 && prev > 0) {
@@ -309,6 +357,7 @@ function onSigned(payload) {
     }
   }
   loadLogs()
+  loadToday()
 }
 
 onMounted(async () => {
@@ -347,6 +396,7 @@ onMounted(async () => {
     /* 修炼状态拉取失败不影响主界面 */
   }
   loadLogs()
+  loadToday()
   tickTimer = setInterval(() => {
     nowTick.value = Date.now()
   }, 1000)
@@ -393,7 +443,7 @@ onUnmounted(() => {
           :key="n"
           class="rail-item"
           :class="{ active: i === 0 }"
-          @click="i === 0 ? null : soon(n)"
+          @click="onNav(n, i)"
         >
           {{ n }}
         </button>
@@ -402,7 +452,10 @@ onUnmounted(() => {
       <!-- 角色卡 -->
       <aside class="card char">
         <div class="char-head">
-          <div class="avatar">{{ auth.user.dao_name.slice(0, 1) }}</div>
+          <button class="avatar-btn" title="更换头像" @click="avatarVisible = true">
+            <UserAvatar :avatar="auth.user.avatar" :name="auth.user.dao_name" :size="52" />
+            <span class="ava-edit">换</span>
+          </button>
           <div class="who">
             <span class="tag">道友</span>
             <h2>{{ auth.user.dao_name }}</h2>
@@ -495,6 +548,7 @@ onUnmounted(() => {
           <ol class="rank-list" v-if="ranks">
             <li v-for="(row, i) in ranks[rankTab]" :key="row.id">
               <span class="rk" :class="'rk-' + (i + 1)">{{ i + 1 }}</span>
+              <UserAvatar class="rk-ava" :avatar="row.avatar" :name="row.dao_name" :size="24" />
               <span class="rk-name">{{ row.dao_name }}</span>
               <span class="rk-val">
                 {{ rankTab === 'deathTop' ? row.death_count + ' 次' : (row.realm_name || '凡人') }}
@@ -549,6 +603,22 @@ onUnmounted(() => {
       @close="medVisible = false"
       @started="onMeditationStarted"
       @settled="onMeditationModalSettled"
+    />
+
+    <!-- 丹药背包（赠送/丢弃会写修行日志，变动后刷新日志） -->
+    <PillBagModal
+      :visible="pillBagVisible"
+      @close="pillBagVisible = false"
+      @changed="loadLogs"
+    />
+
+    <!-- 更换头像（上传本地图片或外链 URL，成功后回抛最新用户视图） -->
+    <AvatarModal
+      :visible="avatarVisible"
+      :avatar="auth.user?.avatar || ''"
+      :name="auth.user?.dao_name || ''"
+      @close="avatarVisible = false"
+      @updated="onAvatarUpdated"
     />
   </div>
 </template>
@@ -754,17 +824,37 @@ onUnmounted(() => {
   gap: 14px;
   margin-bottom: 16px;
 }
-.avatar {
-  width: 52px;
-  height: 52px;
+/* 角色卡头像：可点击更换（悬停浮现「换」角标）；占位配色沿用原水墨深色圆底 */
+.avatar-btn {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5);
+  --ava-bg: linear-gradient(160deg, #6f7783, #464b53);
+  --ava-fg: #fff;
+  --ava-line: transparent;
+}
+.ava-edit {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 20px;
+  height: 20px;
   display: grid;
   place-items: center;
-  font-size: 24px;
-  color: #fff;
-  background: linear-gradient(160deg, #6f7783, #464b53);
+  font-size: 11px;
+  color: #4a3a12;
+  background: linear-gradient(180deg, #f2dda6, #d4af5b);
+  border: 1px solid rgba(184, 147, 63, 0.6);
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  transition: opacity 0.15s;
 }
+.avatar-btn:hover .ava-edit { opacity: 1; }
 .who .tag {
   font-size: 11px;
   color: var(--ink-mut);
@@ -1022,6 +1112,12 @@ onUnmounted(() => {
 .rk-1 { color: #fff; background: #c9a24b; }
 .rk-2 { color: #fff; background: #9aa0a6; }
 .rk-3 { color: #fff; background: #b07a4a; }
+/* 榜单头像沿用页面固定水墨配色（不随系统深浅变化） */
+.rk-ava {
+  --ava-bg: rgba(60, 56, 46, 0.08);
+  --ava-fg: var(--ink-mut);
+  --ava-line: var(--panel-line);
+}
 .rk-name {
   flex: 1 1 auto;
   color: var(--ink-h);

@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiAdminUsers, apiSetUserStatus, apiDeleteUser, apiRealms } from '../../api/admin.js'
 import UserFormModal from '../../components/UserFormModal.vue'
+import UserAvatar from '../../components/UserAvatar.vue'
 import { useToast } from '../../composables/toast.js'
 
 const toast = useToast()
@@ -150,7 +151,12 @@ onMounted(async () => {
         <tbody>
           <tr v-for="row in state.list" :key="row.id">
             <td>{{ row.id }}</td>
-            <td class="strong">{{ row.dao_name }}</td>
+            <td class="strong">
+              <span class="who">
+                <UserAvatar :avatar="row.avatar" :name="row.dao_name" :size="28" />
+                {{ row.dao_name }}
+              </span>
+            </td>
             <td>{{ row.email }}</td>
             <td><span class="realm">{{ row.realm_name || '—' }}</span></td>
             <td>{{ Number(row.comprehension) || 0 }}%</td>
@@ -302,6 +308,11 @@ tbody tr:last-child td {
 td.strong {
   color: var(--text-h);
   font-weight: 500;
+}
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 td.muted {
   color: var(--muted);

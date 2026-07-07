@@ -12,6 +12,7 @@ import {
   meditationGainForDuration,
 } from '../utils/meditation.js'
 import { addLog } from '../models/playerLogModel.js'
+import { bumpDailyStat } from '../models/userDailyStatModel.js'
 
 // 每小时收益百分比来自系统配置，收敛到 [0, 1000]，默认 30
 async function getPerHourPercent() {
@@ -47,6 +48,8 @@ export async function settleDueMeditation(userId) {
   const affected = await applyMeditationSettle(userId, gained)
   if (!affected) return null // 并发下他处已抢先结算
 
+  // 今日统计：打坐时长与收益按结算日入账（跨零点场次整段计入出定当天）
+  await bumpDailyStat(userId, { meditationSeconds: minutes * 60, cultivationGained: gained })
   const label = meditationDurationLabel(minutes)
   const realmName = info.realm_name || '凡人'
   const total = Number(info.advance_exp) || 0

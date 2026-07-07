@@ -1,6 +1,7 @@
 import { findSignInInfo, applySignIn } from '../models/userModel.js'
 import { getBoolConfig } from '../models/systemConfigModel.js'
 import { addLog } from '../models/playerLogModel.js'
+import { bumpDailyStat } from '../models/userDailyStatModel.js'
 import { settleDueMeditation } from './meditationController.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -125,6 +126,10 @@ export async function doSignIn(req, res, next) {
         .json({ error: '还未到下次签到时间', nextSignTime: nextSignTime(latest?.last_sign_time) })
     }
 
+    // 今日统计：仅修为型奖励计入「获得修为」（道韵/道法不计）
+    if (tier.type === 'cultivation') {
+      await bumpDailyStat(req.user.id, { cultivationGained: reward })
+    }
     await addLog(req.user.id, 'sign_in', `每日签到，获得${tier.label} +${reward}`)
 
     const latest = await findSignInInfo(req.user.id)

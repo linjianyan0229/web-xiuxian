@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { apiDashboard, apiRankings } from '../../api/admin.js'
+import UserAvatar from '../../components/UserAvatar.vue'
 import { useToast } from '../../composables/toast.js'
 
 const toast = useToast()
@@ -53,6 +54,7 @@ onMounted(async () => {
         <ol class="rank-list">
           <li v-for="(row, i) in ranks[b.key]" :key="row.id">
             <span class="no" :class="'no-' + (i + 1)">{{ i + 1 }}</span>
+            <UserAvatar :avatar="row.avatar" :name="row.dao_name" :size="26" />
             <span class="name">{{ row.dao_name }}</span>
             <span class="val">
               {{ b.metric === 'death' ? row.death_count + ' 次' : (row.realm_name || '凡人') }}

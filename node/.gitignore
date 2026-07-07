@@ -1,3 +1,5 @@
 node_modules
 *.log
 .env
+# 玩家上传的文件（头像等），运行时生成
+uploads/

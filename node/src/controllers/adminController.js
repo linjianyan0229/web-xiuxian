@@ -25,6 +25,7 @@ import { listConfigs, updateConfig } from '../models/systemConfigModel.js'
 import { hashPassword } from '../utils/password.js'
 import { DAO_NAME_RE, EMAIL_RE, MIN_PASSWORD_LEN } from '../utils/validators.js'
 import { rollComprehension, clampComprehension } from '../utils/comprehension.js'
+import { removeAvatarFile } from './avatarController.js'
 
 // 仪表盘统计
 export async function dashboard(req, res, next) {
@@ -319,10 +320,13 @@ export async function removeUser(req, res, next) {
     if (!Number.isInteger(id) || id <= 0) {
       return res.status(400).json({ error: '用户ID无效' })
     }
+    const raw = await findRawById(id)
     const affected = await deleteUser(id)
     if (!affected) {
       return res.status(404).json({ error: '玩家不存在' })
     }
+    // 删号后清理其头像文件（无外键，手动级联；失败静默）
+    removeAvatarFile(raw?.avatar)
     res.json({ ok: true })
   } catch (err) {
     next(err)

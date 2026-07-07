@@ -2,7 +2,7 @@ import { query } from '../config/db.js'
 
 // 对外暴露的用户视图（不含 password / email_code），关联出当前境界名
 const USER_SELECT = `
-  SELECT u.id, u.dao_name, u.email, u.role, u.status,
+  SELECT u.id, u.dao_name, u.email, u.role, u.status, u.avatar,
          u.realm_id, r.name AS realm_name, r.advance_exp,
          u.ling_shi, u.cultivation, u.dao_yun, u.dao_law, u.comprehension, u.death_count,
          r.hp, r.attack, r.defense, r.spirit,
@@ -73,6 +73,11 @@ export async function findAccessTokenById(id) {
 // 登出：清空令牌并置离线；清空后旧 token 立即失效（中间件比对不通过）
 export async function clearLoginState(id) {
   await query('UPDATE users SET access_token = NULL, is_online = 0 WHERE id = ?', [id])
+}
+
+// 更新头像（存 /api/uploads/avatars/ 下的访问路径）
+export async function updateAvatar(id, avatar) {
+  await query('UPDATE users SET avatar = ? WHERE id = ?', [avatar, id])
 }
 
 /* ---------- 每日签到 ---------- */
@@ -249,7 +254,7 @@ export async function applyBreakthroughDeath(id, fromRealmId, lossField) {
 export async function rankByRealm(limit = 10) {
   const n = Math.min(50, Math.max(1, parseInt(limit, 10) || 10))
   return query(
-    `SELECT u.id, u.dao_name, u.realm_id, r.name AS realm_name
+    `SELECT u.id, u.dao_name, u.avatar, u.realm_id, r.name AS realm_name
      FROM users u LEFT JOIN realms r ON r.id = u.realm_id
      WHERE u.role = 0
      ORDER BY u.realm_id DESC, u.register_time ASC
@@ -261,7 +266,7 @@ export async function rankByRealm(limit = 10) {
 export async function rankOnlineByRealm(limit = 10) {
   const n = Math.min(50, Math.max(1, parseInt(limit, 10) || 10))
   return query(
-    `SELECT u.id, u.dao_name, u.realm_id, r.name AS realm_name
+    `SELECT u.id, u.dao_name, u.avatar, u.realm_id, r.name AS realm_name
      FROM users u LEFT JOIN realms r ON r.id = u.realm_id
      WHERE u.role = 0 AND u.is_online = 1
      ORDER BY u.realm_id DESC, u.login_time DESC
@@ -273,7 +278,7 @@ export async function rankOnlineByRealm(limit = 10) {
 export async function rankByDeath(limit = 10) {
   const n = Math.min(50, Math.max(1, parseInt(limit, 10) || 10))
   return query(
-    `SELECT u.id, u.dao_name, u.death_count, u.realm_id, r.name AS realm_name
+    `SELECT u.id, u.dao_name, u.avatar, u.death_count, u.realm_id, r.name AS realm_name
      FROM users u LEFT JOIN realms r ON r.id = u.realm_id
      WHERE u.role = 0 AND u.death_count > 0
      ORDER BY u.death_count DESC, u.realm_id DESC
@@ -372,11 +377,13 @@ export async function updateUser(id, fields) {
   return result.affectedRows
 }
 
-// 删除玩家（仅 role=0，避免误删管理员）；连带清理其修行日志（无外键，手动级联）
+// 删除玩家（仅 role=0，避免误删管理员）；连带清理其修行日志与丹药背包（无外键，手动级联）
 export async function deleteUser(id) {
   const result = await query('DELETE FROM users WHERE id = ? AND role = 0', [id])
   if (result.affectedRows > 0) {
     await query('DELETE FROM player_logs WHERE user_id = ?', [id])
+    await query('DELETE FROM user_pills WHERE user_id = ?', [id])
+    await query('DELETE FROM user_daily_stats WHERE user_id = ?', [id])
   }
   return result.affectedRows
 }

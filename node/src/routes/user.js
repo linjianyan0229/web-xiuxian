@@ -1,10 +1,12 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
-import { getProfile, rankings, getLogs } from '../controllers/userController.js'
+import { getProfile, rankings, getLogs, getTodayStats } from '../controllers/userController.js'
 import { getSignInStatus, doSignIn } from '../controllers/signInController.js'
 import { getCultivateStatus, doCultivate } from '../controllers/cultivateController.js'
 import { getBreakthroughStatus, doBreakthrough } from '../controllers/breakthroughController.js'
 import { getMeditationStatus, startMeditation } from '../controllers/meditationController.js'
+import { avatarUpload, uploadAvatar, setAvatarUrl } from '../controllers/avatarController.js'
+import { getMyPills, getMyPillMeta, giftPill, discardPill } from '../controllers/userPillController.js'
 
 const router = Router()
 
@@ -24,7 +26,17 @@ router.post('/breakthrough', authRequired, doBreakthrough)
 // 需鉴权：打坐 —— 查询状态（打坐中剩余/可选时长与预估收益）/ 开始打坐（期满自动结算，不可中断）
 router.get('/meditation', authRequired, getMeditationStatus)
 router.post('/meditation', authRequired, startMeditation)
+// 需鉴权：丹药背包 —— 列表（筛选/分页）/ 筛选元数据 / 赠送 / 丢弃
+router.get('/pills', authRequired, getMyPills)
+router.get('/pills/meta', authRequired, getMyPillMeta)
+router.post('/pills/gift', authRequired, giftPill)
+router.post('/pills/discard', authRequired, discardPill)
 // 需鉴权：修行日志（最近 N 条）
 router.get('/logs', authRequired, getLogs)
+// 需鉴权：今日修炼统计（修炼次数/打坐时长/获得修为 + 突破成功率，首页「今日修炼」面板）
+router.get('/today', authRequired, getTodayStats)
+// 需鉴权：头像 —— 上传图片（multipart/form-data，文件字段名 avatar）/ 以外链 URL 设置（传空清除）
+router.post('/avatar', authRequired, avatarUpload, uploadAvatar)
+router.post('/avatar/url', authRequired, setAvatarUrl)
 
 export default router

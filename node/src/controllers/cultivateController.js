@@ -2,6 +2,7 @@ import { findCultivateInfo, applyCultivate } from '../models/userModel.js'
 import { getNumberConfig } from '../models/systemConfigModel.js'
 import { cultivationGainPerSession } from '../utils/cultivationGain.js'
 import { addLog } from '../models/playerLogModel.js'
+import { bumpDailyStat } from '../models/userDailyStatModel.js'
 import { settleDueMeditation } from './meditationController.js'
 
 // 冷却秒数来自系统配置，收敛到 [1, 86400]，默认 60
@@ -95,6 +96,7 @@ export async function doCultivate(req, res, next) {
       })
     }
 
+    await bumpDailyStat(req.user.id, { cultivateCount: 1, cultivationGained: gain })
     const latest = await findCultivateInfo(req.user.id, cooldown)
     const status = buildStatus(latest, cooldown)
     await addLog(
