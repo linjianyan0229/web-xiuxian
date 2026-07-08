@@ -49,6 +49,9 @@ async function onLogout() {
         <RouterLink :to="{ name: 'admin-sects' }">
           <span class="ico">⛩</span> 宗门管理
         </RouterLink>
+        <RouterLink :to="{ name: 'admin-announcements' }">
+          <span class="ico">✉</span> 公告管理
+        </RouterLink>
         <RouterLink :to="{ name: 'admin-configs' }">
           <span class="ico">⚙</span> 系统配置
         </RouterLink>

@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { apiLogout } from '../api/auth.js'
-import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus, apiTodayStats, apiWorldChat, apiWorldChatSend } from '../api/game.js'
+import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, apiPlayerLogs, apiMeditationStatus, apiTodayStats, apiWorldChat, apiWorldChatSend, apiAnnouncements, apiUnreadCount, apiFriends } from '../api/game.js'
 import SignInModal from '../components/SignInModal.vue'
 import BreakthroughModal from '../components/BreakthroughModal.vue'
 import MeditationModal from '../components/MeditationModal.vue'
@@ -11,6 +11,9 @@ import PillBagModal from '../components/PillBagModal.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import AvatarModal from '../components/AvatarModal.vue'
 import AttributeModal from '../components/AttributeModal.vue'
+import ChatUserModal from '../components/ChatUserModal.vue'
+import NotificationModal from '../components/NotificationModal.vue'
+import PrivateChatModal from '../components/PrivateChatModal.vue'
 import { useToast } from '../composables/toast.js'
 import boyImg from '../../image/boy.webp'
 import girlImg from '../../image/girl.webp'
@@ -64,7 +67,7 @@ const rankTabs = [
 ]
 
 // 左侧功能栏（游戏模块，多数待开发）
-const navItems = ['修行', '洞府', '功法', '法宝', '丹药', '伙伴', '宗门', '历炼', '仙盟', '探索']
+const navItems = ['修行', '探索', '功法', '法宝', '丹药', '宗门', '伙伴']
 
 // 世界频道（全服聊天：进页拉最新一批，此后 5 秒一轮增量拉取；发言冷却由服务端把关）
 const chatMsgs = ref([])
@@ -73,6 +76,79 @@ const chatSending = ref(false)
 const chatListEl = ref(null)
 let chatLastId = 0
 let chatTimer = null
+let socialTimer = null
+
+// 频道用户名片：点击某条消息的头像/道号弹出该道友公开信息
+const chatUser = ref(null)
+function openChatUser(m) {
+  chatUser.value = m
+}
+
+// 社交：私信会话弹窗（名片「私信」打开）+ 未读私信/待处理请求角标（伙伴导航红点）
+const privatePeer = ref(null)
+const unreadPm = ref(0)
+const pendingReq = ref(0)
+const socialBadge = computed(() => unreadPm.value + pendingReq.value)
+
+async function loadSocialBadge() {
+  try {
+    const [u, f] = await Promise.all([apiUnreadCount(), apiFriends()])
+    unreadPm.value = Number(u.unread) || 0
+    pendingReq.value = (f.requests || []).length
+  } catch {
+    /* 角标拉取失败不影响主界面 */
+  }
+}
+
+// 打开私信会话（来自名片「私信」或伙伴弹窗），关闭时刷新角标
+function openPrivate(peer) {
+  privatePeer.value = peer
+}
+function closePrivate() {
+  privatePeer.value = null
+  loadSocialBadge()
+}
+
+// 通知（顶栏「通知」按钮）：已发布修仙公告 + 本人系统通知（丹药赠礼等）
+// 数据由本页拉取传给 NotificationModal；未读红点以「最新通知签名」与本地已读记录比对
+const noticeVisible = ref(false)
+const announcements = ref([])
+const notices = ref([])
+const noticeLoading = ref(false)
+const noticeSeen = ref(localStorage.getItem('noticeSeen') || '')
+
+// 最新通知签名：最大公告id : 最大通知id（公告按置顶排序，最大 id 需显式求）
+const noticeSig = computed(() => {
+  const maxA = announcements.value.reduce((m, a) => Math.max(m, Number(a.id) || 0), 0)
+  const maxN = notices.value.reduce((m, n) => Math.max(m, Number(n.id) || 0), 0)
+  return `${maxA}:${maxN}`
+})
+const hasUnread = computed(() => noticeSig.value !== '0:0' && noticeSig.value !== noticeSeen.value)
+
+async function loadNotices() {
+  noticeLoading.value = true
+  try {
+    const r = await apiAnnouncements()
+    announcements.value = r.announcements || []
+    notices.value = r.notices || []
+  } catch {
+    /* 通知拉取失败不影响主界面 */
+  } finally {
+    noticeLoading.value = false
+  }
+}
+
+function markNoticeSeen() {
+  noticeSeen.value = noticeSig.value
+  localStorage.setItem('noticeSeen', noticeSeen.value)
+}
+
+// 打开通知弹窗：刷新一次数据，并将当前最新签名记为已读（清除红点）
+async function openNotice() {
+  noticeVisible.value = true
+  await loadNotices()
+  markNoticeSeen()
+}
 
 function scrollChatToBottom() {
   nextTick(() => {
@@ -413,6 +489,7 @@ function onNav(name, index) {
   if (index === 0) return
   if (name === '丹药') pillBagVisible.value = true
   else if (name === '宗门') router.push({ name: 'sect' })
+  else if (name === '伙伴') router.push({ name: 'friends' })
   else soon(name)
 }
 
@@ -496,15 +573,21 @@ onMounted(async () => {
   loadLogs()
   loadToday()
   loadChat()
+  loadNotices() // 背景拉取通知，用于未读红点（不弹窗）
+  loadSocialBadge() // 未读私信 + 待处理结交请求角标
   tickTimer = setInterval(() => {
     nowTick.value = Date.now()
   }, 1000)
   chatTimer = setInterval(pollChat, 5000)
+  socialTimer = setInterval(() => {
+    if (!document.hidden) loadSocialBadge()
+  }, 30000)
 })
 
 onUnmounted(() => {
   if (tickTimer) clearInterval(tickTimer)
   if (chatTimer) clearInterval(chatTimer)
+  if (socialTimer) clearInterval(socialTimer)
 })
 </script>
 
@@ -533,7 +616,10 @@ onUnmounted(() => {
         >
           签
         </button>
-        <button class="icon-btn" @click="soon('公告')" title="公告">✉</button>
+        <button class="icon-btn notice-btn" @click="openNotice" title="通知">
+          ✉
+          <span v-if="hasUnread" class="notice-dot"></span>
+        </button>
         <button class="leave" @click="onLogout">离山</button>
       </div>
     </header>
@@ -549,6 +635,9 @@ onUnmounted(() => {
           @click="onNav(n, i)"
         >
           {{ n }}
+          <span v-if="n === '伙伴' && socialBadge" class="rail-badge">
+            {{ socialBadge > 99 ? '99+' : socialBadge }}
+          </span>
         </button>
       </nav>
 
@@ -640,10 +729,16 @@ onUnmounted(() => {
               class="chat-msg"
               :class="{ mine: m.user_id === auth.user.id }"
             >
-              <UserAvatar class="chat-ava" :avatar="m.avatar" :name="m.dao_name" :size="24" />
+              <UserAvatar
+                class="chat-ava"
+                :avatar="m.avatar"
+                :name="m.dao_name"
+                :size="24"
+                @click="openChatUser(m)"
+              />
               <div class="chat-main">
                 <div class="chat-meta">
-                  <span class="chat-name">{{ m.dao_name || '无名散修' }}</span>
+                  <span class="chat-name" @click="openChatUser(m)">{{ m.dao_name || '无名散修' }}</span>
                   <span class="chat-realm">{{ m.realm_name || '凡人' }}</span>
                   <span class="chat-time">{{ fmtChatTime(m.created_time) }}</span>
                 </div>
@@ -774,6 +869,32 @@ onUnmounted(() => {
       :user="auth.user"
       @close="attrVisible = false"
     />
+
+    <!-- 世界频道用户名片（点击频道内道友弹出；含结交/切磋/私信/拉黑操作） -->
+    <ChatUserModal
+      :visible="!!chatUser"
+      :user="chatUser"
+      @close="chatUser = null"
+      @private="openPrivate"
+      @changed="loadSocialBadge"
+    />
+
+    <!-- 私信会话（一对一传音；由频道名片「私信」打开；伙伴列表在独立 /friends 页） -->
+    <PrivateChatModal
+      :visible="!!privatePeer"
+      :peer="privatePeer"
+      @close="closePrivate"
+      @sent="loadSocialBadge"
+    />
+
+    <!-- 通知（修仙公告 + 系统通知；顶栏「通知」按钮打开） -->
+    <NotificationModal
+      :visible="noticeVisible"
+      :announcements="announcements"
+      :notices="notices"
+      :loading="noticeLoading"
+      @close="noticeVisible = false"
+    />
   </div>
 </template>
 
@@ -891,6 +1012,18 @@ onUnmounted(() => {
   0%, 100% { box-shadow: 0 0 0 0 rgba(184, 147, 63, 0); }
   50% { box-shadow: 0 0 0 4px rgba(184, 147, 63, 0.2); }
 }
+/* 通知按钮：未读时右上角赤色小红点 */
+.notice-btn { position: relative; }
+.notice-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #b4453a;
+  box-shadow: 0 0 0 2px var(--panel, #fbfaf5);
+}
 .leave {
   padding: 7px 16px;
   font-family: inherit;
@@ -947,6 +1080,7 @@ onUnmounted(() => {
   border-radius: 14px;
 }
 .rail-item {
+  position: relative;
   padding: 12px 0;
   font-family: inherit;
   font-size: 17px;
@@ -957,6 +1091,22 @@ onUnmounted(() => {
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+}
+.rail-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0;
+  color: #fff;
+  background: #b4453a;
+  border-radius: 999px;
 }
 .rail-item:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
 .rail-item.active {
@@ -1250,6 +1400,7 @@ onUnmounted(() => {
 }
 .chat-ava {
   margin-top: 2px;
+  cursor: pointer;
   --ava-bg: rgba(60, 56, 46, 0.08);
   --ava-fg: var(--ink-mut);
   --ava-line: var(--panel-line);
@@ -1261,7 +1412,8 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 12px;
 }
-.chat-name { color: var(--ink-h); font-weight: 600; }
+.chat-name { color: var(--ink-h); font-weight: 600; cursor: pointer; }
+.chat-name:hover { color: var(--gold); }
 .chat-msg.mine .chat-name { color: var(--gold); }
 .chat-realm {
   color: var(--ink-mut);

@@ -31,3 +31,9 @@ export const apiUpdateRealmSignIn = (id, minPercent, maxPercent) =>
 export const apiAdminSects = (params) => http.get('/admin/sects', { params })
 export const apiAdminSectUpdate = (id, payload) => http.put(`/admin/sects/${id}`, payload)
 export const apiAdminSectDisband = (id) => http.delete(`/admin/sects/${id}`)
+
+// 修仙公告管理（列表/发布/编辑/删除）
+export const apiAdminAnnouncements = (params) => http.get('/admin/announcements', { params })
+export const apiCreateAnnouncement = (payload) => http.post('/admin/announcements', payload)
+export const apiUpdateAnnouncement = (id, payload) => http.put(`/admin/announcements/${id}`, payload)
+export const apiDeleteAnnouncement = (id) => http.delete(`/admin/announcements/${id}`)

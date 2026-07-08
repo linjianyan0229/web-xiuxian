@@ -17,6 +17,12 @@ import {
 } from '../controllers/adminController.js'
 import { getPills, getPillMeta, editPill, editPillGrade } from '../controllers/pillController.js'
 import { adminGetSects, adminEditSect, adminDisbandSect } from '../controllers/sectController.js'
+import {
+  adminGetAnnouncements,
+  adminCreateAnnouncement,
+  adminEditAnnouncement,
+  adminDeleteAnnouncement,
+} from '../controllers/announcementController.js'
 
 const router = Router()
 
@@ -44,5 +50,10 @@ router.put('/pills/:id/grades/:grade', adminAuthRequired, editPillGrade)
 router.get('/sects', adminAuthRequired, adminGetSects)
 router.put('/sects/:id', adminAuthRequired, adminEditSect)
 router.delete('/sects/:id', adminAuthRequired, adminDisbandSect)
+// 修仙公告管理（发布/编辑/删除）
+router.get('/announcements', adminAuthRequired, adminGetAnnouncements)
+router.post('/announcements', adminAuthRequired, adminCreateAnnouncement)
+router.put('/announcements/:id', adminAuthRequired, adminEditAnnouncement)
+router.delete('/announcements/:id', adminAuthRequired, adminDeleteAnnouncement)
 
 export default router

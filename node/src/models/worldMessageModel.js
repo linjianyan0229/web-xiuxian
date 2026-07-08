@@ -1,12 +1,13 @@
 import { query } from '../config/db.js'
 
-// 消息视图：带发送者道号/头像/性别/境界名（LEFT JOIN 容错；删号会级联清理消息，正常不会出现空用户）
+// 消息视图：带发送者道号/头像/性别/境界名/宗门名（LEFT JOIN 容错；删号会级联清理消息，正常不会出现空用户）
 const MESSAGE_SELECT = `
   SELECT m.id, m.user_id, m.content, m.created_time,
-         u.dao_name, u.avatar, u.gender, r.name AS realm_name
+         u.dao_name, u.avatar, u.gender, r.name AS realm_name, s.name AS sect_name
   FROM world_messages m
   LEFT JOIN users u ON u.id = m.user_id
   LEFT JOIN realms r ON r.id = u.realm_id
+  LEFT JOIN sects s ON s.id = u.sect_id
 `
 
 export async function addMessage(userId, content) {

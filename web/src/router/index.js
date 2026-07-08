@@ -32,6 +32,12 @@ const routes = [
     component: () => import('../views/SectView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/friends',
+    name: 'friends',
+    component: () => import('../views/FriendsView.vue'),
+    meta: { requiresAuth: true },
+  },
 
   /* ---------- 后台管理（登录统一走 /login，按 role 进入） ---------- */
   {
@@ -64,6 +70,11 @@ const routes = [
         path: 'sects',
         name: 'admin-sects',
         component: () => import('../views/admin/SectsView.vue'),
+      },
+      {
+        path: 'announcements',
+        name: 'admin-announcements',
+        component: () => import('../views/admin/AnnouncementsView.vue'),
       },
       {
         path: 'configs',

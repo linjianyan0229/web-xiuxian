@@ -188,6 +188,66 @@ CREATE TABLE IF NOT EXISTS world_messages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='世界频道消息表';
 `
 
+// 建表语句：修仙公告表（后台发布，前台「通知」弹窗「修仙公告」页展示；status 控制上/下架，pinned 置顶）
+const CREATE_ANNOUNCEMENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS announcements (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '公告ID',
+  title        VARCHAR(64)     NOT NULL              COMMENT '公告标题',
+  content      VARCHAR(2000)   NOT NULL DEFAULT ''   COMMENT '公告正文(纯文本)',
+  pinned       TINYINT         NOT NULL DEFAULT 0    COMMENT '是否置顶: 0=否, 1=是',
+  status       TINYINT         NOT NULL DEFAULT 1    COMMENT '状态: 1=已发布, 0=下架',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
+  updated_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近更新时间',
+  PRIMARY KEY (id),
+  KEY idx_status_pinned (status, pinned, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='修仙公告表';
+`
+
+// 建表语句：好友关系表（结交/请求；一行代表一对用户的关系，方向由 requester/addressee 记录）
+// status: 0=待通过(请求已发出), 1=已结交。判断二人是否好友需查两个方向。
+const CREATE_FRIENDSHIPS_TABLE = `
+CREATE TABLE IF NOT EXISTS friendships (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '关系ID',
+  requester_id BIGINT UNSIGNED NOT NULL              COMMENT '发起方(users.id)',
+  addressee_id BIGINT UNSIGNED NOT NULL              COMMENT '接收方(users.id)',
+  status       TINYINT         NOT NULL DEFAULT 0    COMMENT '状态: 0=待通过, 1=已结交',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发起时间',
+  updated_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近变动时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_pair (requester_id, addressee_id),
+  KEY idx_addressee (addressee_id, status),
+  KEY idx_requester (requester_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='好友关系表';
+`
+
+// 建表语句：拉黑表（单向：user_id 拉黑了 blocked_id）
+const CREATE_USER_BLOCKS_TABLE = `
+CREATE TABLE IF NOT EXISTS user_blocks (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  user_id      BIGINT UNSIGNED NOT NULL              COMMENT '拉黑者(users.id)',
+  blocked_id   BIGINT UNSIGNED NOT NULL              COMMENT '被拉黑者(users.id)',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '拉黑时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_block (user_id, blocked_id),
+  KEY idx_blocked (blocked_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='拉黑表';
+`
+
+// 建表语句：私信表（点对点，一行一条消息；会话由收发双方 id 聚合，无独立会话表）
+const CREATE_PRIVATE_MESSAGES_TABLE = `
+CREATE TABLE IF NOT EXISTS private_messages (
+  id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '消息ID(即时间序)',
+  sender_id     BIGINT UNSIGNED NOT NULL              COMMENT '发送者(users.id)',
+  receiver_id   BIGINT UNSIGNED NOT NULL              COMMENT '接收者(users.id)',
+  content       VARCHAR(255)    NOT NULL              COMMENT '消息内容(纯文本)',
+  receiver_read TINYINT         NOT NULL DEFAULT 0    COMMENT '接收方是否已读: 0=未读, 1=已读',
+  created_time  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发送时间',
+  PRIMARY KEY (id),
+  KEY idx_receiver (receiver_id, sender_id, id),
+  KEY idx_sender (sender_id, receiver_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='私信表';
+`
+
 // 建表语句：系统配置表（键值对，后台「系统配置列表」用；如签到功能开关等）
 const CREATE_SYSTEM_CONFIGS_TABLE = `
 CREATE TABLE IF NOT EXISTS system_configs (
@@ -411,6 +471,10 @@ export async function initDatabase() {
   await pool.query(CREATE_PLAYER_LOGS_TABLE)
   await pool.query(CREATE_USER_DAILY_STATS_TABLE)
   await pool.query(CREATE_WORLD_MESSAGES_TABLE)
+  await pool.query(CREATE_ANNOUNCEMENTS_TABLE)
+  await pool.query(CREATE_FRIENDSHIPS_TABLE)
+  await pool.query(CREATE_USER_BLOCKS_TABLE)
+  await pool.query(CREATE_PRIVATE_MESSAGES_TABLE)
   await pool.query(CREATE_SYSTEM_CONFIGS_TABLE)
 
   // 迁移（老库补列）
