@@ -35,6 +35,16 @@ WEB_PORT=8080
 TZ=Asia/Shanghai
 ```
 
+默认 Docker 部署已切到国内源：
+
+```env
+DOCKER_MIRROR=docker.m.daocloud.io
+NPM_REGISTRY=https://registry.npmmirror.com
+ALPINE_MIRROR=https://mirrors.aliyun.com/alpine
+```
+
+其中 `DOCKER_MIRROR` 用于 `mysql/node/nginx` 基础镜像，`NPM_REGISTRY` 用于容器内 `npm ci`，`ALPINE_MIRROR` 用于 `apk add tzdata`。如部署环境已有私有镜像仓库，可在 `.env` 中覆盖这些值。
+
 3. 如需启用注册邮箱验证码和重置密码，配置 SMTP：
 
 ```env

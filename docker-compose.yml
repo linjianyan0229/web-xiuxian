@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.4
+    image: ${DOCKER_MIRROR:-docker.m.daocloud.io}/library/mysql:8.4
     container_name: xiuxian-mysql
     restart: unless-stopped
     environment:
@@ -21,6 +21,10 @@ services:
   backend:
     build:
       context: ./node
+      args:
+        DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        ALPINE_MIRROR: ${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
     container_name: xiuxian-backend
     restart: unless-stopped
     depends_on:
@@ -55,6 +59,10 @@ services:
   frontend:
     build:
       context: ./web
+      args:
+        DOCKER_MIRROR: ${DOCKER_MIRROR:-docker.m.daocloud.io}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        ALPINE_MIRROR: ${ALPINE_MIRROR:-https://mirrors.aliyun.com/alpine}
     container_name: xiuxian-frontend
     restart: unless-stopped
     depends_on:
