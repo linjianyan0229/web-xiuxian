@@ -46,6 +46,12 @@ async function onLogout() {
         <RouterLink :to="{ name: 'admin-pills' }">
           <span class="ico">◉</span> 丹药管理
         </RouterLink>
+        <RouterLink :to="{ name: 'admin-techniques' }">
+          <span class="ico">卷</span> 功法管理
+        </RouterLink>
+        <RouterLink :to="{ name: 'admin-artifacts' }">
+          <span class="ico">⚔</span> 法宝管理
+        </RouterLink>
         <RouterLink :to="{ name: 'admin-sects' }">
           <span class="ico">⛩</span> 宗门管理
         </RouterLink>

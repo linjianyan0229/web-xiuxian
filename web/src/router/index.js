@@ -33,9 +33,21 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/my-sect',
+    name: 'my-sect',
+    component: () => import('../views/MySectView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/friends',
     name: 'friends',
     component: () => import('../views/FriendsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/pills',
+    name: 'pills',
+    component: () => import('../views/PillsView.vue'),
     meta: { requiresAuth: true },
   },
 
@@ -65,6 +77,16 @@ const routes = [
         path: 'pills',
         name: 'admin-pills',
         component: () => import('../views/admin/PillsView.vue'),
+      },
+      {
+        path: 'techniques',
+        name: 'admin-techniques',
+        component: () => import('../views/admin/TechniquesView.vue'),
+      },
+      {
+        path: 'artifacts',
+        name: 'admin-artifacts',
+        component: () => import('../views/admin/ArtifactsView.vue'),
       },
       {
         path: 'sects',

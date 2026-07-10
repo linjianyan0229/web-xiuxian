@@ -117,6 +117,61 @@ CREATE TABLE IF NOT EXISTS user_pills (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='玩家丹药背包表';
 `
 
+// 建表语句：功法表（主功法+辅功法/心法共用，type 区分；id 来自数据文件 techniques.json）
+// 实际加成 = base_effects × level_multipliers[层-1]；层阈值 = threshold_base × threshold_ratio^(层-1)
+const CREATE_TECHNIQUES_TABLE = `
+CREATE TABLE IF NOT EXISTS techniques (
+  id                VARCHAR(64)  NOT NULL              COMMENT '功法ID(数据文件)',
+  name              VARCHAR(64)  NOT NULL              COMMENT '功法名',
+  type              VARCHAR(8)   NOT NULL              COMMENT '类型: main=主功法, heart=辅功法(心法)',
+  type_name         VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '类型名称',
+  tier              VARCHAR(16)  NOT NULL              COMMENT '品阶键(阶_品, 如 huang_low)',
+  tier_name         VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '品阶名(如 黄阶下品)',
+  category          VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '流派标识(如 sword)',
+  category_name     VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '流派名称(如 剑修)',
+  realm_min         INT UNSIGNED NOT NULL DEFAULT 1    COMMENT '适用境界下限(realms.id)',
+  realm_max         INT UNSIGNED NOT NULL DEFAULT 83   COMMENT '适用境界上限(realms.id)',
+  max_level         TINYINT UNSIGNED NOT NULL DEFAULT 4 COMMENT '满层数',
+  level_multipliers JSON         NOT NULL              COMMENT '各层倍率数组(长度=满层数)',
+  base_progress     INT UNSIGNED NOT NULL DEFAULT 10   COMMENT '每次结算熟练度基数',
+  threshold_base    INT UNSIGNED NOT NULL DEFAULT 100  COMMENT '层阈值基数',
+  threshold_ratio   DECIMAL(4,2) NOT NULL DEFAULT 2    COMMENT '层阈值公比',
+  base_effects      JSON         NOT NULL              COMMENT '基础五维加成(target/type/value/polarity)',
+  summary           VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '效果摘要',
+  intro             VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '简介',
+  PRIMARY KEY (id),
+  KEY idx_type_tier (type, tier),
+  KEY idx_realm_min (realm_min)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='功法表';
+`
+
+// 建表语句：法宝表（id 来自数据文件 artifacts.json）
+// 实际加成 = base_effects(正面) × refine_multipliers[层-1]，负面词条恒定；炼化层阈值 = threshold_base × threshold_ratio^(层-1)
+const CREATE_ARTIFACTS_TABLE = `
+CREATE TABLE IF NOT EXISTS artifacts (
+  id                 VARCHAR(64)  NOT NULL              COMMENT '法宝ID(数据文件)',
+  name               VARCHAR(64)  NOT NULL              COMMENT '法宝名',
+  type               VARCHAR(8)   NOT NULL              COMMENT '类型: natal/offense/defense/support',
+  type_name          VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '类型名称',
+  tier               VARCHAR(16)  NOT NULL              COMMENT '品阶键(faqi/lingqi/baoqi/daoqi/xianqi)',
+  tier_name          VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '品阶名(如 宝器)',
+  category           VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '分类/定位(如 攻击槽)',
+  realm_req          VARCHAR(32)  NOT NULL DEFAULT ''   COMMENT '装备大境界要求(空=无要求)',
+  realm_req_rank     INT UNSIGNED NOT NULL DEFAULT 1    COMMENT '该大境界最小realms.id(装备校验)',
+  refine_max         TINYINT UNSIGNED NOT NULL DEFAULT 3 COMMENT '满炼化层数',
+  refine_multipliers JSON         NOT NULL              COMMENT '各炼化层倍率数组(长度=满层数)',
+  refine_base        INT UNSIGNED NOT NULL DEFAULT 10   COMMENT '温养每小时炼化基数',
+  threshold_base     INT UNSIGNED NOT NULL DEFAULT 100  COMMENT '炼化层阈值基数',
+  threshold_ratio    DECIMAL(4,2) NOT NULL DEFAULT 2    COMMENT '炼化层阈值公比',
+  base_effects       JSON         NOT NULL              COMMENT '基础五维加成(target/type/value/polarity, 可含负面)',
+  summary            VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '效果摘要',
+  intro              VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '简介',
+  PRIMARY KEY (id),
+  KEY idx_type_tier (type, tier),
+  KEY idx_realm_req_rank (realm_req_rank)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='法宝表';
+`
+
 // 建表语句：邮箱验证码表（注册/重置密码共用；一次一码、10 分钟有效、验证即作废）
 const CREATE_EMAIL_CODES_TABLE = `
 CREATE TABLE IF NOT EXISTS email_codes (
@@ -149,6 +204,22 @@ CREATE TABLE IF NOT EXISTS sects (
   UNIQUE KEY uk_name (name),
   KEY idx_leader (leader_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='宗门表';
+`
+
+// 建表语句：宗门成员表（职位体系）——归属仍以 users.sect_id 为准（人数聚合/连表不变），
+// 本表记成员职位，两处须同事务写。position 取值见 utils/sectPositions.js；peak_id 为山峰系统预留。
+const CREATE_SECT_MEMBERS_TABLE = `
+CREATE TABLE IF NOT EXISTS sect_members (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '成员记录ID',
+  sect_id     BIGINT UNSIGNED NOT NULL              COMMENT '宗门(sects.id)',
+  user_id     BIGINT UNSIGNED NOT NULL              COMMENT '成员(users.id), 一人一宗一职',
+  position    VARCHAR(32)     NOT NULL DEFAULT 'outer_disciple' COMMENT '职位key(utils/sectPositions.js)',
+  peak_id     BIGINT UNSIGNED DEFAULT NULL          COMMENT '所属山峰(山峰系统未实装, 预留)',
+  joined_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入宗时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user (user_id),
+  KEY idx_sect (sect_id, position)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='宗门成员表(职位体系)';
 `
 
 // 建表语句：修行日志表（记录玩家每次操作：注册/登录/签到/修炼等，前台首页「修行日志」展示）
@@ -389,6 +460,81 @@ async function seedPills() {
   console.log(`已导入丹药数据 ${pills.length} 种（品质物品 ${gradeValues.length} 件）`)
 }
 
+// 首次启动从数据文件导入功法（幂等：表非空则跳过；数据文件顶层含元信息，取 .techniques）
+async function seedTechniques() {
+  const [rows] = await pool.query('SELECT COUNT(*) AS c FROM techniques')
+  if (rows[0].c > 0) return
+
+  const raw = await readFile(join(__dirname, '../data/techniques.json'), 'utf8')
+  const list = JSON.parse(raw).techniques
+  const values = list.map((t) => [
+    t.id,
+    t.name,
+    t.type,
+    t.typeName || '',
+    t.tier,
+    t.tierName || '',
+    t.category || '',
+    t.categoryName || '',
+    t.realmMin || 1,
+    t.realmMax || 83,
+    t.maxLevel || 4,
+    JSON.stringify(t.levelMultipliers || [1]),
+    t.baseProgress || 10,
+    t.thresholdBase || 100,
+    t.thresholdRatio || 2,
+    JSON.stringify(t.baseEffects || []),
+    t.summary || '',
+    t.intro || '',
+  ])
+  await pool.query(
+    `INSERT INTO techniques
+      (id, name, type, type_name, tier, tier_name, category, category_name,
+       realm_min, realm_max, max_level, level_multipliers, base_progress,
+       threshold_base, threshold_ratio, base_effects, summary, intro)
+     VALUES ?`,
+    [values]
+  )
+  console.log(`已导入功法数据 ${list.length} 部`)
+}
+
+// 首次启动从数据文件导入法宝（幂等：表非空则跳过；数据文件顶层含元信息，取 .artifacts）
+async function seedArtifacts() {
+  const [rows] = await pool.query('SELECT COUNT(*) AS c FROM artifacts')
+  if (rows[0].c > 0) return
+
+  const raw = await readFile(join(__dirname, '../data/artifacts.json'), 'utf8')
+  const list = JSON.parse(raw).artifacts
+  const values = list.map((a) => [
+    a.id,
+    a.name,
+    a.type,
+    a.typeName || '',
+    a.tier,
+    a.tierName || '',
+    a.category || '',
+    a.realmReq || '',
+    a.realmReqRank || 1,
+    a.refineMax || 3,
+    JSON.stringify(a.refineMultipliers || [1]),
+    a.refineBase || 10,
+    a.thresholdBase || 100,
+    a.thresholdRatio || 2,
+    JSON.stringify(a.baseEffects || []),
+    a.summary || '',
+    a.intro || '',
+  ])
+  await pool.query(
+    `INSERT INTO artifacts
+      (id, name, type, type_name, tier, tier_name, category, realm_req, realm_req_rank,
+       refine_max, refine_multipliers, refine_base, threshold_base, threshold_ratio,
+       base_effects, summary, intro)
+     VALUES ?`,
+    [values]
+  )
+  console.log(`已导入法宝数据 ${list.length} 件`)
+}
+
 // 幂等补列：老库已有 users 表但缺某列时补上（MySQL 不支持 ADD COLUMN IF NOT EXISTS）
 async function ensureColumn(table, column, definition) {
   const [rows] = await pool.query(
@@ -466,8 +612,11 @@ export async function initDatabase() {
   await pool.query(CREATE_PILLS_TABLE)
   await pool.query(CREATE_PILL_GRADES_TABLE)
   await pool.query(CREATE_USER_PILLS_TABLE)
+  await pool.query(CREATE_TECHNIQUES_TABLE)
+  await pool.query(CREATE_ARTIFACTS_TABLE)
   await pool.query(CREATE_EMAIL_CODES_TABLE)
   await pool.query(CREATE_SECTS_TABLE)
+  await pool.query(CREATE_SECT_MEMBERS_TABLE)
   await pool.query(CREATE_PLAYER_LOGS_TABLE)
   await pool.query(CREATE_USER_DAILY_STATS_TABLE)
   await pool.query(CREATE_WORLD_MESSAGES_TABLE)
@@ -584,12 +733,23 @@ export async function initDatabase() {
   await dropColumn('users', 'email_code')
   // 清理旧设计：管理员已并入 users 表
   await pool.query('DROP TABLE IF EXISTS admins')
+  // 宗门成员表存量回填（幂等）：职位体系上线前已入宗的用户补成员行——宗主记宗主，其余记外门弟子
+  await pool.query(
+    `INSERT INTO sect_members (sect_id, user_id, position)
+     SELECT u.sect_id, u.id, IF(s.leader_id = u.id, 'sect_master', 'outer_disciple')
+     FROM users u
+     JOIN sects s ON s.id = u.sect_id
+     LEFT JOIN sect_members m ON m.user_id = u.id
+     WHERE m.id IS NULL`
+  )
   // 重启后在线态清零，避免残留（真实在线由登录/登出维护）
   await pool.query('UPDATE users SET is_online = 0')
 
-  // 播种境界数据 + 丹药数据 + 默认管理员 + 系统配置
+  // 播种境界数据 + 丹药数据 + 功法/法宝数据 + 默认管理员 + 系统配置
   await seedRealms()
   await seedPills()
+  await seedTechniques()
+  await seedArtifacts()
   await seedDefaultAdmin()
   await seedSystemConfigs()
 

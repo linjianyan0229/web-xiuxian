@@ -26,6 +26,16 @@ const CODE_TTL_MINUTES = 10
 const CODE_RESEND_SECONDS = 60
 const CODE_PURPOSES = ['register', 'reset']
 
+// 注册页配置（公开接口）：告知前端注册是否需要邮箱验证码，供隐藏/显示验证码输入
+export async function registerConfig(req, res, next) {
+  try {
+    const emailCodeEnabled = await getBoolConfig('register_email_code_enabled', true)
+    res.json({ emailCodeEnabled })
+  } catch (err) {
+    next(err)
+  }
+}
+
 // 发送邮箱验证码（公开接口，注册/重置密码共用）
 export async function sendEmailCode(req, res, next) {
   try {

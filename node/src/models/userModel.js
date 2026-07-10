@@ -417,6 +417,7 @@ export async function deleteUser(id) {
     await query('DELETE FROM friendships WHERE requester_id = ? OR addressee_id = ?', [id, id])
     await query('DELETE FROM user_blocks WHERE user_id = ? OR blocked_id = ?', [id, id])
     await query('DELETE FROM private_messages WHERE sender_id = ? OR receiver_id = ?', [id, id])
+    await query('DELETE FROM sect_members WHERE user_id = ?', [id])
   }
   return result.affectedRows
 }

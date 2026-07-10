@@ -6,6 +6,7 @@ import { useToast } from '../composables/toast.js'
 const props = defineProps({
   visible: { type: Boolean, default: false },
   item: { type: Object, default: null }, // 背包列表行（含丹药与品质档详情）
+  initialMode: { type: String, default: 'main' }, // 打开时直达面板: main | gift | discard
 })
 // changed: 赠送/丢弃成功后回抛剩余数量，供背包列表刷新
 const emit = defineEmits(['close', 'changed'])
@@ -23,7 +24,9 @@ watch(
   () => props.visible,
   (v) => {
     if (v) {
-      mode.value = 'main'
+      mode.value = ['main', 'gift', 'discard'].includes(props.initialMode)
+        ? props.initialMode
+        : 'main'
       error.value = ''
       giftTarget.value = ''
       giftQty.value = 1

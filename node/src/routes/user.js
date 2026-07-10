@@ -8,7 +8,20 @@ import { getMeditationStatus, startMeditation } from '../controllers/meditationC
 import { avatarUpload, uploadAvatar, setAvatarUrl } from '../controllers/avatarController.js'
 import { getMyPills, getMyPillMeta, giftPill, discardPill } from '../controllers/userPillController.js'
 import { getWorldMessages, postWorldMessage } from '../controllers/worldChatController.js'
-import { getSects, getSectMeta, getSectDetail, doCreateSect } from '../controllers/sectController.js'
+import {
+  getSects,
+  getSectMeta,
+  getSectDetail,
+  doCreateSect,
+  getSectMembers,
+  doJoinSect,
+  doQuitSect,
+  doAppoint,
+  doKick,
+  doTransferLeader,
+  doUpdateMySect,
+  doDisbandMySect,
+} from '../controllers/sectController.js'
 import { checkSensitive } from '../controllers/sensitiveController.js'
 import { getAnnouncements } from '../controllers/announcementController.js'
 import {
@@ -73,6 +86,15 @@ router.get('/sects/meta', authRequired, getSectMeta)
 router.get('/sects', authRequired, getSects)
 router.get('/sects/:id', authRequired, getSectDetail)
 router.post('/sects', authRequired, doCreateSect)
+// 需鉴权：宗门成员与职位 —— 成员列表 / 加入 / 退出 / 任免 / 逐出 / 传位 / 改资料 / 解散
+router.get('/sects/:id/members', authRequired, getSectMembers)
+router.post('/sects/quit', authRequired, doQuitSect)
+router.post('/sects/:id/join', authRequired, doJoinSect)
+router.post('/sects/:id/appoint', authRequired, doAppoint)
+router.post('/sects/:id/kick', authRequired, doKick)
+router.post('/sects/:id/transfer', authRequired, doTransferLeader)
+router.put('/sects/:id', authRequired, doUpdateMySect)
+router.post('/sects/:id/disband', authRequired, doDisbandMySect)
 // 需鉴权：好友（结交）—— 列表(好友+待通过请求) / 发起 / 应允 / 婉拒 / 断交
 router.get('/friends', authRequired, getFriends)
 router.post('/friends/request', authRequired, requestFriend)

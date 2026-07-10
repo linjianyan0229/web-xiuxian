@@ -1,38 +1,135 @@
 <script setup>
-import { ref, watch } from 'vue'
-import { apiSectDetail } from '../api/game.js'
+import { computed, ref, watch } from 'vue'
+import { apiSectDetail, apiSectJoin, apiSectQuit, apiSectDisband } from '../api/game.js'
 import UserAvatar from './UserAvatar.vue'
+import SectMembersModal from './SectMembersModal.vue'
+import SectCreateModal from './SectCreateModal.vue'
+import { useAuthStore } from '../stores/auth.js'
+import { useToast } from '../composables/toast.js'
 import { fmtDateTime } from '../utils/datetime.js'
 import dongfuImg from '../../image/dongfu.webp'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   sectId: { type: Number, default: 0 },
+  // { realms, createCost }（修订资料弹窗的境界选项；SectView 传入）
+  meta: { type: Object, default: () => ({ realms: [], createCost: 5000 }) },
 })
-const emit = defineEmits(['close'])
+// changed: 入宗/退宗/解散/人事变动等成功，父级据此刷新列表
+// joined: 拜入成功（父级可跳转「我的宗门」主页）
+const emit = defineEmits(['close', 'changed', 'joined'])
+
+const auth = useAuthStore()
+const toast = useToast()
 
 const sect = ref(null)
+const my = ref(null) // 我在此宗的职位视图 { position, position_name, rank } | null
 const loading = ref(false)
 const error = ref('')
+const busy = ref(false)
+const membersVisible = ref(false)
+const editVisible = ref(false)
 
-// 打开时按 id 拉取最新详情（人数/活跃度实时）
+const isLeader = computed(() => !!sect.value && sect.value.leader_id === auth.user?.id)
+const canEditInfo = computed(() => !!my.value && my.value.rank <= 3)
+// 无宗门方可拜入；境界须达门槛
+const canJoin = computed(() => !my.value && !auth.user?.sect_id)
+const realmEnough = computed(() => {
+  if (!sect.value) return false
+  const req = Number(sect.value.realm_req_rank) || 0
+  return req === 0 || Number(auth.user?.realm_id) >= req
+})
+
+async function load() {
+  sect.value = null
+  my.value = null
+  error.value = ''
+  loading.value = true
+  try {
+    const r = await apiSectDetail(props.sectId)
+    sect.value = r.sect
+    my.value = r.my
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loading.value = false
+  }
+}
+
+// 打开时按 id 拉取最新详情（人数/活跃度/我的职位实时）
 watch(
   () => props.visible,
-  async (v) => {
-    if (!v) return
-    sect.value = null
-    error.value = ''
-    loading.value = true
-    try {
-      const r = await apiSectDetail(props.sectId)
-      sect.value = r.sect
-    } catch (e) {
-      error.value = e.message
-    } finally {
-      loading.value = false
-    }
+  (v) => {
+    if (v) load()
   }
 )
+
+async function join() {
+  if (!window.confirm(`确定拜入【${sect.value.name}】门下？入宗即为外门弟子。`)) return
+  busy.value = true
+  try {
+    const r = await apiSectJoin(sect.value.id)
+    if (r.user) auth.user = r.user
+    toast.success(`已拜入【${sect.value.name}】门下`)
+    emit('changed')
+    emit('joined')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function quit() {
+  if (!window.confirm(`确定辞别【${sect.value.name}】？退宗后职位不再保留。`)) return
+  busy.value = true
+  try {
+    const r = await apiSectQuit()
+    if (r.user) auth.user = r.user
+    toast.success('已重归散修之列')
+    await load()
+    emit('changed')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function disband() {
+  if (
+    !window.confirm(
+      `确定解散【${sect.value.name}】？全体 ${sect.value.member_count} 名门人将散去，此举不可撤销！`
+    )
+  )
+    return
+  busy.value = true
+  try {
+    const r = await apiSectDisband(sect.value.id)
+    if (r.user) auth.user = r.user
+    toast.success('宗门已解散')
+    emit('changed')
+    emit('close')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    busy.value = false
+  }
+}
+
+// 人事变动（任免/逐出/传位）后：刷新详情（宗主可能已易位）并上抛
+async function onMembersChanged() {
+  await load()
+  emit('changed')
+}
+
+// 修订资料成功：落最新宗门视图并上抛
+function onUpdated(r) {
+  editVisible.value = false
+  if (r?.sect) sect.value = r.sect
+  toast.success('宗门资料已修订')
+  emit('changed')
+}
 
 function fmt(t) {
   return fmtDateTime(t)
@@ -62,6 +159,7 @@ function fmt(t) {
         <h3 class="name">{{ sect.name }}</h3>
         <p class="req">
           入门要求：{{ sect.realm_req ? sect.realm_req + '及以上' : '无要求，来者皆客' }}
+          <template v-if="my">｜道友现居「{{ my.position_name }}」之位</template>
         </p>
 
         <dl class="info">
@@ -79,9 +177,49 @@ function fmt(t) {
           <p>{{ sect.intro || '此宗尚无简介，一切尽在不言中。' }}</p>
         </div>
 
-        <button class="btn ghost" @click="emit('close')">知道了</button>
+        <p v-if="canJoin && !realmEnough" class="deny">
+          此宗收徒须【{{ sect.realm_req }}】及以上境界，道友修为尚浅
+        </p>
+
+        <div class="btns">
+          <button class="btn ghost" :disabled="busy" @click="membersVisible = true">门人名录</button>
+          <button
+            v-if="canJoin"
+            class="btn gold"
+            :disabled="busy || !realmEnough"
+            @click="join"
+          >拜入此宗</button>
+          <button
+            v-if="canEditInfo"
+            class="btn gold"
+            :disabled="busy"
+            @click="editVisible = true"
+          >修订资料</button>
+          <button v-if="isLeader" class="btn danger" :disabled="busy" @click="disband">解散宗门</button>
+          <button v-else-if="my" class="btn danger" :disabled="busy" @click="quit">退出宗门</button>
+          <button v-if="!my && !canJoin" class="btn ghost" @click="emit('close')">知道了</button>
+        </div>
       </template>
     </div>
+
+    <!-- 门人名录（含任免/逐出/传位管理） -->
+    <SectMembersModal
+      :visible="membersVisible"
+      :sect-id="sect?.id ?? 0"
+      :sect-name="sect?.name ?? ''"
+      @close="membersVisible = false"
+      @changed="onMembersChanged"
+    />
+
+    <!-- 修订宗门资料（复用创建弹窗的编辑模式） -->
+    <SectCreateModal
+      :visible="editVisible"
+      mode="edit"
+      :sect="sect"
+      :meta="meta"
+      @close="editVisible = false"
+      @updated="onUpdated"
+    />
   </div>
 </template>
 
@@ -240,21 +378,46 @@ function fmt(t) {
   word-break: break-word;
 }
 
-.btn {
-  display: block;
-  width: calc(100% - 48px);
+.deny {
+  margin: -6px 24px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #b4453b;
+}
+
+.btns {
+  display: flex;
+  gap: 10px;
   margin: 0 24px;
+}
+.btn {
+  flex: 1 1 0;
   padding: 11px 0;
   font-family: inherit;
-  font-size: 15px;
-  letter-spacing: 3px;
+  font-size: 14px;
+  letter-spacing: 2px;
   border-radius: 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn.ghost {
   color: var(--ink);
   background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--line);
 }
-.btn.ghost:hover { color: var(--gold); border-color: var(--gold); }
+.btn.ghost:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); }
+.btn.gold {
+  color: #4a3a12;
+  background: linear-gradient(180deg, #f2dda6, #d4af5b);
+  border: 1px solid rgba(184, 147, 63, 0.6);
+  box-shadow: 0 6px 16px -8px rgba(184, 147, 63, 0.8);
+}
+.btn.gold:hover:not(:disabled) { filter: brightness(1.05); }
+.btn.danger {
+  color: #b4453b;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(180, 69, 59, 0.4);
+}
+.btn.danger:hover:not(:disabled) { background: rgba(180, 69, 59, 0.08); border-color: #b4453b; }
+.btn:disabled { opacity: 0.55; cursor: default; box-shadow: none; }
 </style>

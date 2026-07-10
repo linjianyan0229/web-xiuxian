@@ -6,9 +6,24 @@ import {
   createSect,
   updateSect,
   disbandSect,
+  findMemberByUserId,
+  listSectMembers,
+  joinSect,
+  removeMember,
+  appointMember,
+  transferLeader,
 } from '../models/sectModel.js'
 import { findPublicById } from '../models/userModel.js'
 import { addLog } from '../models/playerLogModel.js'
+import {
+  SECT_POSITIONS,
+  APPOINTABLE_POSITIONS,
+  positionInfo,
+  positionName,
+  hasPersonnelPower,
+  hasInfoPower,
+  isEldersOrAbove,
+} from '../utils/sectPositions.js'
 
 // 立派费用（灵石）；后续可挪入 system_configs 由后台调整
 export const SECT_CREATE_COST = 5000
@@ -53,12 +68,26 @@ export async function getSectMeta(req, res, next) {
   }
 }
 
-// GET /api/user/sects/:id — 宗门详细信息
+// 我的成员视图（详情/成员列表接口共用）：非本宗成员返回 null
+async function myMemberView(userId, sectId, gender) {
+  const m = await findMemberByUserId(userId)
+  if (!m || Number(m.sect_id) !== Number(sectId)) return null
+  const info = positionInfo(m.position)
+  return {
+    position: m.position,
+    position_name: positionName(m.position, gender),
+    rank: info ? info.rank : 9,
+    joined_time: m.joined_time,
+  }
+}
+
+// GET /api/user/sects/:id — 宗门详细信息（my=我在此宗的职位，非本宗成员为 null）
 export async function getSectDetail(req, res, next) {
   try {
     const sect = await findSectById(Number(req.params.id))
     if (!sect) return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
-    res.json({ sect })
+    const my = await myMemberView(req.user.id, sect.id, req.user.gender)
+    res.json({ sect, my })
   } catch (err) {
     next(err)
   }
@@ -131,6 +160,321 @@ export async function doCreateSect(req, res, next) {
     const sect = await findSectById(result.id)
     const user = await findPublicById(req.user.id)
     res.json({ sect, user })
+  } catch (err) {
+    next(err)
+  }
+}
+
+/* ---------- 前台：成员与职位（一期：加入/退出/成员列表/任免/逐出/传位/改资料/解散） ---------- */
+
+// GET /api/user/sects/:id/members — 宗门成员列表（任何登录玩家可看；本宗成员另附管理所需元数据）
+export async function getSectMembers(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const sect = await findSectById(sectId)
+    if (!sect) return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+
+    const { page, pageSize } = req.query
+    const data = await listSectMembers(sectId, { page, pageSize })
+    const list = data.list.map((r) => {
+      const info = positionInfo(r.position)
+      return {
+        ...r,
+        position_name: positionName(r.position, r.gender),
+        rank: info ? info.rank : 9,
+      }
+    })
+    const my = await myMemberView(req.user.id, sectId, req.user.gender)
+    // 有人事权时附可任命职位表（峰主/真传弟子依赖山峰系统，一期不开放；宗主只能经转让）
+    const appointable =
+      my && hasPersonnelPower(my.position)
+        ? APPOINTABLE_POSITIONS.map((k) => ({
+            key: k,
+            name: SECT_POSITIONS[k].name,
+            rank: SECT_POSITIONS[k].rank,
+            quota: SECT_POSITIONS[k].quota,
+          }))
+        : []
+    res.json({ ...data, list, my, leaderId: sect.leader_id, appointable })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// POST /api/user/sects/:id/join — 拜入宗门（境界门槛校验，入宗即外门弟子）
+export async function doJoinSect(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const sect = await findSectById(sectId)
+    if (!sect) return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+
+    // 前置校验给明确文案（原子守卫在事务里兜底并发）
+    if (req.user.sect_id) {
+      return res.status(409).json({ error: '道友已有宗门在身，欲投他宗须先退出本宗' })
+    }
+    if (sect.realm_req_rank > 0 && Number(req.user.realm_id) < Number(sect.realm_req_rank)) {
+      return res.status(409).json({ error: `此宗收徒须【${sect.realm_req}】及以上境界，道友修为尚浅` })
+    }
+
+    const result = await joinSect({ userId: req.user.id, sectId })
+    if (result.error === 'sect_gone') {
+      return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+    }
+    if (result.error) {
+      return res.status(409).json({ error: '入宗未成：道友已有宗门或境界不足' })
+    }
+
+    await addLog(req.user.id, 'sect_join', `拜入【${sect.name}】门下，忝列外门弟子`)
+    const user = await findPublicById(req.user.id)
+    res.json({ ok: true, user })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// POST /api/user/sects/quit — 退出宗门（宗主不可退，须先传位或解散）
+export async function doQuitSect(req, res, next) {
+  try {
+    const m = await findMemberByUserId(req.user.id)
+    if (!m) return res.status(409).json({ error: '道友本就是散修之身' })
+    if (m.position === 'sect_master') {
+      return res.status(409).json({ error: '宗主之身不可轻退：须先传位于人，或解散宗门' })
+    }
+    const sect = await findSectById(m.sect_id)
+    const affected = await removeMember({ sectId: m.sect_id, userId: req.user.id })
+    if (!affected) return res.status(409).json({ error: '退宗未成，请稍后再试' })
+
+    await addLog(req.user.id, 'sect_quit', `辞别【${sect?.name ?? '宗门'}】，重归散修之列`)
+    const user = await findPublicById(req.user.id)
+    res.json({ ok: true, user })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// 任免/逐出的操作者与目标校验（共用）：返回 { operator, target, sect } 或已回错误响应的 null
+async function loadPersonnelContext(req, res, sectId) {
+  const sect = await findSectById(sectId)
+  if (!sect) {
+    res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+    return null
+  }
+  const operator = await findMemberByUserId(req.user.id)
+  if (!operator || Number(operator.sect_id) !== sectId) {
+    res.status(403).json({ error: '道友并非此宗门人，无从置喙' })
+    return null
+  }
+  if (!hasPersonnelPower(operator.position)) {
+    res.status(403).json({ error: '人事任免须太上长老、宗主或神子/神女方可为之' })
+    return null
+  }
+  const targetId = Number(req.body?.targetId)
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    res.status(400).json({ error: '未指明目标成员' })
+    return null
+  }
+  if (targetId === req.user.id) {
+    res.status(400).json({ error: '不可对自己行使任免之权' })
+    return null
+  }
+  const target = await findMemberByUserId(targetId)
+  if (!target || Number(target.sect_id) !== sectId) {
+    res.status(404).json({ error: '此人并非本宗门人' })
+    return null
+  }
+  if (target.position === 'sect_master') {
+    res.status(403).json({ error: '宗主之位不可直接任免，须经传位（或宗主审判，未实装）' })
+    return null
+  }
+  return { operator, target, sect, targetId }
+}
+
+// POST /api/user/sects/:id/appoint — 任免职位 { targetId, position }
+// 神子/神女限制（文稿 §3）：对长老级以上（rank<=5）的任免须呈罢免信——文书系统未实装，一期直接 403
+export async function doAppoint(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const ctx = await loadPersonnelContext(req, res, sectId)
+    if (!ctx) return
+    const { operator, target, sect, targetId } = ctx
+
+    const position = String(req.body?.position ?? '').trim()
+    if (!APPOINTABLE_POSITIONS.includes(position)) {
+      return res.status(400).json({ error: '此职位不可任命（宗主须经传位；峰主/真传弟子待山峰系统实装）' })
+    }
+    if (target.position === position) {
+      return res.status(400).json({ error: '此人已居此位' })
+    }
+    if (
+      operator.position === 'divine_child' &&
+      (isEldersOrAbove(target.position) || isEldersOrAbove(position))
+    ) {
+      return res.status(403).json({ error: '神子/神女不可直接任免长老级以上，须呈罢免信由宗主/太上长老定夺' })
+    }
+
+    const info = positionInfo(position)
+    const result = await appointMember({ sectId, targetId, position, quota: info.quota })
+    if (result.error === 'quota_full') {
+      return res.status(409).json({ error: `「${info.name}」编制已满（限 ${info.quota} 人）` })
+    }
+    if (result.error) {
+      return res.status(409).json({ error: '任免未成：此人已不在本宗' })
+    }
+
+    const targetUser = await findPublicById(targetId)
+    const newName = positionName(position, targetUser?.gender)
+    await addLog(targetId, 'sect_appoint', `【${sect.name}】人事任免：道友现居「${newName}」之位`)
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// POST /api/user/sects/:id/kick — 逐出宗门 { targetId }
+export async function doKick(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const ctx = await loadPersonnelContext(req, res, sectId)
+    if (!ctx) return
+    const { operator, target, sect, targetId } = ctx
+
+    if (operator.position === 'divine_child' && isEldersOrAbove(target.position)) {
+      return res.status(403).json({ error: '神子/神女不可直接处置长老级以上，须呈罢免信由宗主/太上长老定夺' })
+    }
+
+    const affected = await removeMember({ sectId, userId: targetId })
+    if (!affected) return res.status(409).json({ error: '逐出未成：此人已不在本宗' })
+
+    await addLog(targetId, 'sect_kick', `被【${sect.name}】逐出师门，重归散修之列`)
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// POST /api/user/sects/:id/transfer — 传位宗主 { targetId }（原宗主卸任改任太上长老）
+export async function doTransferLeader(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const sect = await findSectById(sectId)
+    if (!sect) return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+    if (Number(sect.leader_id) !== req.user.id) {
+      return res.status(403).json({ error: '唯有宗主本人方可传位' })
+    }
+    const targetId = Number(req.body?.targetId)
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: '未指明继任者' })
+    }
+    if (targetId === req.user.id) {
+      return res.status(400).json({ error: '道友本就是宗主' })
+    }
+    const target = await findMemberByUserId(targetId)
+    if (!target || Number(target.sect_id) !== sectId) {
+      return res.status(404).json({ error: '继任者须为本宗门人' })
+    }
+
+    const taishangQuota = SECT_POSITIONS.taishang_elder.quota
+    const result = await transferLeader({ sectId, fromId: req.user.id, toId: targetId, taishangQuota })
+    if (result.error === 'taishang_full') {
+      return res.status(409).json({
+        error: `传位后道友将退居太上长老，然其编制已满（限 ${taishangQuota} 人），须先另作安排`,
+      })
+    }
+    if (result.error) {
+      return res.status(409).json({ error: '传位未成：宗主之位或继任者状态有变' })
+    }
+
+    const targetUser = await findPublicById(targetId)
+    await addLog(targetId, 'sect_appoint', `接掌【${sect.name}】，荣登宗主之位`)
+    await addLog(
+      req.user.id,
+      'sect_transfer',
+      `将【${sect.name}】宗主之位传于「${targetUser?.dao_name ?? '门人'}」，退居太上长老`
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// PUT /api/user/sects/:id — 修改宗门资料（宗门信息管理权：太上长老/宗主/神子）
+export async function doUpdateMySect(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const sect = await findSectById(sectId)
+    if (!sect) return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+    const operator = await findMemberByUserId(req.user.id)
+    if (!operator || Number(operator.sect_id) !== sectId || !hasInfoPower(operator.position)) {
+      return res.status(403).json({ error: '宗门资料须太上长老、宗主或神子/神女方可改动' })
+    }
+
+    const fields = {}
+    if (req.body?.name !== undefined) {
+      const name = String(req.body.name).trim()
+      if (name.length < 2 || name.length > 16) {
+        return res.status(400).json({ error: '宗门名称须为 2~16 个字符' })
+      }
+      fields.name = name
+    }
+    if (req.body?.intro !== undefined) {
+      const intro = String(req.body.intro).trim()
+      if (intro.length > 500) return res.status(400).json({ error: '宗门简介最多 500 字' })
+      fields.intro = intro
+    }
+    if (req.body?.avatarUrl !== undefined) {
+      const avatar = normalizeImageUrl(req.body.avatarUrl)
+      if (avatar.error) return res.status(400).json({ error: `宗门头像：${avatar.error}` })
+      fields.avatar = avatar.value
+    }
+    if (req.body?.backgroundUrl !== undefined) {
+      const background = normalizeImageUrl(req.body.backgroundUrl)
+      if (background.error) return res.status(400).json({ error: `宗门背景：${background.error}` })
+      fields.background = background.value
+    }
+    if (req.body?.realmReq !== undefined) {
+      const realmReqRaw = String(req.body.realmReq).trim()
+      if (!realmReqRaw) {
+        fields.realm_req = ''
+        fields.realm_req_rank = 0
+      } else {
+        const opt = await findRealmOption(realmReqRaw)
+        if (!opt) return res.status(400).json({ error: '境界要求不在可选之列' })
+        fields.realm_req = opt.realm
+        fields.realm_req_rank = Number(opt.realm_rank) || 0
+      }
+    }
+    if (Object.keys(fields).length === 0) {
+      return res.status(400).json({ error: '没有可更新的字段' })
+    }
+
+    try {
+      await updateSect(sectId, fields)
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ error: '此宗门名号已有人立派，另取一名吧' })
+      }
+      throw err
+    }
+    res.json({ sect: await findSectById(sectId) })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// POST /api/user/sects/:id/disband — 解散宗门（仅宗主本人）
+export async function doDisbandMySect(req, res, next) {
+  try {
+    const sectId = Number(req.params.id)
+    const sect = await findSectById(sectId)
+    if (!sect) return res.status(404).json({ error: '此宗门已不在仙门名录之上' })
+    if (Number(sect.leader_id) !== req.user.id) {
+      return res.status(403).json({ error: '唯有宗主本人方可解散宗门' })
+    }
+
+    await disbandSect(sectId)
+    await addLog(req.user.id, 'sect_disband', `将【${sect.name}】解散，众弟子皆散去，各奔前程`)
+    const user = await findPublicById(req.user.id)
+    res.json({ ok: true, user })
   } catch (err) {
     next(err)
   }

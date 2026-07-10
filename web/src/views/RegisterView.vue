@@ -1,8 +1,8 @@
 <script setup>
-import { onUnmounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
-import { apiSendEmailCode } from '../api/auth.js'
+import { apiRegisterConfig, apiSendEmailCode } from '../api/auth.js'
 import AuthShell from '../components/AuthShell.vue'
 // 修仙角色展示：男/女修视频立绘（web/video/boy.mp4、girl.mp4），随表单性别选择切换
 import boyVideo from '../../video/boy.mp4'
@@ -14,6 +14,18 @@ const auth = useAuthStore()
 const form = reactive({ daoName: '', email: '', password: '', confirm: '', gender: 1, emailCode: '' })
 const error = ref('')
 const loading = ref(false)
+
+// 注册是否需要邮箱验证码（系统配置 register_email_code_enabled）。
+// 默认 true（保守：拉取失败时仍显示验证码框，由后端最终判定）
+const codeRequired = ref(true)
+onMounted(async () => {
+  try {
+    const r = await apiRegisterConfig()
+    codeRequired.value = r.emailCodeEnabled !== false
+  } catch {
+    // 拉取失败保持默认显示验证码，避免误放行
+  }
+})
 
 // 获取验证码：60 秒重发倒计时（以服务端返回的 resendSeconds 为准）
 const codeSending = ref(false)
@@ -62,19 +74,21 @@ async function onSubmit() {
     error.value = '两次输入的密码不一致'
     return
   }
-  if (!form.emailCode.trim()) {
+  if (codeRequired.value && !form.emailCode.trim()) {
     error.value = '请填写邮箱验证码'
     return
   }
   loading.value = true
   try {
-    await auth.register({
+    const payload = {
       daoName: form.daoName,
       email: form.email,
       password: form.password,
       gender: form.gender,
-      emailCode: form.emailCode.trim(),
-    })
+    }
+    // 开关关闭时不携带 emailCode（后端也不校验）
+    if (codeRequired.value) payload.emailCode = form.emailCode.trim()
+    await auth.register(payload)
     router.push({ name: 'home' })
   } catch (e) {
     error.value = e.message
@@ -116,7 +130,7 @@ async function onSubmit() {
         <label>邮箱</label>
         <input v-model.trim="form.email" type="email" placeholder="用于找回与验证" autocomplete="email" />
       </div>
-      <div class="field">
+      <div v-if="codeRequired" class="field">
         <label>邮箱验证码</label>
         <div class="code-row">
           <input

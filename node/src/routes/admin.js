@@ -16,6 +16,20 @@ import {
   setRealmSignIn,
 } from '../controllers/adminController.js'
 import { getPills, getPillMeta, editPill, editPillGrade } from '../controllers/pillController.js'
+import {
+  getTechniques,
+  getTechniqueMeta,
+  addTechnique,
+  editTechnique,
+  removeTechnique,
+} from '../controllers/techniqueController.js'
+import {
+  getArtifacts,
+  getArtifactMeta,
+  addArtifact,
+  editArtifact,
+  removeArtifact,
+} from '../controllers/artifactController.js'
 import { adminGetSects, adminEditSect, adminDisbandSect } from '../controllers/sectController.js'
 import {
   adminGetAnnouncements,
@@ -46,6 +60,18 @@ router.get('/pills/meta', adminAuthRequired, getPillMeta)
 router.get('/pills', adminAuthRequired, getPills)
 router.put('/pills/:id', adminAuthRequired, editPill)
 router.put('/pills/:id/grades/:grade', adminAuthRequired, editPillGrade)
+// 功法管理（增删改查；meta 需先于 :id 类路由声明）
+router.get('/techniques/meta', adminAuthRequired, getTechniqueMeta)
+router.get('/techniques', adminAuthRequired, getTechniques)
+router.post('/techniques', adminAuthRequired, addTechnique)
+router.put('/techniques/:id', adminAuthRequired, editTechnique)
+router.delete('/techniques/:id', adminAuthRequired, removeTechnique)
+// 法宝管理（增删改查；meta 需先于 :id 类路由声明）
+router.get('/artifacts/meta', adminAuthRequired, getArtifactMeta)
+router.get('/artifacts', adminAuthRequired, getArtifacts)
+router.post('/artifacts', adminAuthRequired, addArtifact)
+router.put('/artifacts/:id', adminAuthRequired, editArtifact)
+router.delete('/artifacts/:id', adminAuthRequired, removeArtifact)
 // 宗门列表管理
 router.get('/sects', adminAuthRequired, adminGetSects)
 router.put('/sects/:id', adminAuthRequired, adminEditSect)

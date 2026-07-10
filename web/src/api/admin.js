@@ -27,6 +27,20 @@ export const apiUpdatePillGrade = (id, grade, payload) =>
 export const apiUpdateRealmSignIn = (id, minPercent, maxPercent) =>
   http.patch(`/admin/realms/${id}/sign-in`, { minPercent, maxPercent })
 
+// 功法管理（增删改查）
+export const apiAdminTechniques = (params) => http.get('/admin/techniques', { params })
+export const apiTechniqueMeta = () => http.get('/admin/techniques/meta')
+export const apiCreateTechnique = (payload) => http.post('/admin/techniques', payload)
+export const apiUpdateTechnique = (id, payload) => http.put(`/admin/techniques/${id}`, payload)
+export const apiDeleteTechnique = (id) => http.delete(`/admin/techniques/${id}`)
+
+// 法宝管理（增删改查）
+export const apiAdminArtifacts = (params) => http.get('/admin/artifacts', { params })
+export const apiArtifactMeta = () => http.get('/admin/artifacts/meta')
+export const apiCreateArtifact = (payload) => http.post('/admin/artifacts', payload)
+export const apiUpdateArtifact = (id, payload) => http.put(`/admin/artifacts/${id}`, payload)
+export const apiDeleteArtifact = (id) => http.delete(`/admin/artifacts/${id}`)
+
 // 宗门列表管理
 export const apiAdminSects = (params) => http.get('/admin/sects', { params })
 export const apiAdminSectUpdate = (id, payload) => http.put(`/admin/sects/${id}`, payload)

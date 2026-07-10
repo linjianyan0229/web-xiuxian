@@ -1,17 +1,22 @@
 <script setup>
-import { reactive, ref, watch } from 'vue'
-import { apiSectCreate } from '../api/game.js'
+import { computed, reactive, ref, watch } from 'vue'
+import { apiSectCreate, apiSectUpdate } from '../api/game.js'
 import { useAuthStore } from '../stores/auth.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
   // { realms: [{realm, realm_rank}], createCost }
   meta: { type: Object, default: () => ({ realms: [], createCost: 5000 }) },
+  // 编辑模式：mode='edit' 时以 sect 预填并提交到 PUT /sects/:id（宗门信息管理权，后端校验）
+  mode: { type: String, default: 'create' },
+  sect: { type: Object, default: null },
 })
 // created: 立派成功，回抛 { sect, user }（user 含扣减后的灵石与 sect_id）
-const emit = defineEmits(['close', 'created'])
+// updated: 资料修改成功，回抛 { sect }
+const emit = defineEmits(['close', 'created', 'updated'])
 
 const auth = useAuthStore()
+const isEdit = computed(() => props.mode === 'edit')
 
 const form = reactive({
   name: '',
@@ -27,11 +32,11 @@ watch(
   () => props.visible,
   (v) => {
     if (v) {
-      form.name = ''
-      form.realmReq = ''
-      form.avatarUrl = ''
-      form.backgroundUrl = ''
-      form.intro = ''
+      form.name = isEdit.value ? (props.sect?.name ?? '') : ''
+      form.realmReq = isEdit.value ? (props.sect?.realm_req ?? '') : ''
+      form.avatarUrl = isEdit.value ? (props.sect?.avatar ?? '') : ''
+      form.backgroundUrl = isEdit.value ? (props.sect?.background ?? '') : ''
+      form.intro = isEdit.value ? (props.sect?.intro ?? '') : ''
       error.value = ''
       busy.value = false
     }
@@ -57,21 +62,27 @@ async function submit() {
     error.value = '宗门简介最多 500 字'
     return
   }
-  if ((Number(auth.user?.ling_shi) || 0) < props.meta.createCost) {
+  if (!isEdit.value && (Number(auth.user?.ling_shi) || 0) < props.meta.createCost) {
     error.value = `立派需耗费灵石 ${props.meta.createCost}，道友囊中尚且不足`
     return
   }
   busy.value = true
   error.value = ''
   try {
-    const r = await apiSectCreate({
+    const payload = {
       name,
       realmReq: form.realmReq,
       avatarUrl: form.avatarUrl.trim(),
       backgroundUrl: form.backgroundUrl.trim(),
       intro: form.intro.trim(),
-    })
-    emit('created', r)
+    }
+    if (isEdit.value) {
+      const r = await apiSectUpdate(props.sect.id, payload)
+      emit('updated', r)
+    } else {
+      const r = await apiSectCreate(payload)
+      emit('created', r)
+    }
   } catch (e) {
     error.value = e.message
   } finally {
@@ -84,8 +95,9 @@ async function submit() {
   <div v-if="visible" class="mask" @click.self="emit('close')">
     <div class="dialog">
       <button class="x" @click="emit('close')" title="关闭">×</button>
-      <h3 class="title">开宗立派</h3>
-      <p class="desc">立派需耗费灵石 <b class="gold-t">{{ meta.createCost }}</b>（现有 {{ auth.user?.ling_shi ?? 0 }}），立派者自任宗主</p>
+      <h3 class="title">{{ isEdit ? '修订宗门资料' : '开宗立派' }}</h3>
+      <p class="desc" v-if="isEdit">修订【{{ sect?.name }}】的名号、门规与形象</p>
+      <p class="desc" v-else>立派需耗费灵石 <b class="gold-t">{{ meta.createCost }}</b>（现有 {{ auth.user?.ling_shi ?? 0 }}），立派者自任宗主</p>
 
       <div class="form">
         <label class="fld">
@@ -126,7 +138,8 @@ async function submit() {
       <div class="btn-row">
         <button class="btn ghost" :disabled="busy" @click="emit('close')">再想想</button>
         <button class="btn gold" :disabled="busy" @click="submit">
-          {{ busy ? '立派中…' : `立 派（灵石 -${meta.createCost}）` }}
+          <template v-if="isEdit">{{ busy ? '修订中…' : '修 订' }}</template>
+          <template v-else>{{ busy ? '立派中…' : `立 派（灵石 -${meta.createCost}）` }}</template>
         </button>
       </div>
     </div>

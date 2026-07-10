@@ -9,7 +9,7 @@ useHeartbeat()
 
 // 页面切换过渡：游戏内页面（home ↔ sect）按前进/返回方向滑动，其余路由轻淡入；
 // 首次进入/刷新不做动画（from 无 name）
-const GAME_PAGES = ['home', 'sect', 'friends']
+const GAME_PAGES = ['home', 'sect', 'my-sect', 'friends', 'pills']
 const transitionName = ref('')
 const router = useRouter()
 router.afterEach((to, from) => {

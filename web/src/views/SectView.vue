@@ -87,12 +87,18 @@ function openCreate() {
   createVisible.value = true
 }
 
-// 创建成功：后端已回最新用户视图（灵石扣减/入驻），落登录态并刷新列表
-async function onCreated(payload) {
+// 创建成功：后端已回最新用户视图（灵石扣减/入驻），落登录态并进入宗门主页
+function onCreated(payload) {
   if (payload?.user) auth.user = payload.user
   createVisible.value = false
   toast.success(`【${payload.sect.name}】开宗立派，道友已为一派宗主`)
-  await load()
+  router.push({ name: 'my-sect' })
+}
+
+// 拜入成功（详情弹窗内）：直接进入宗门主页
+function onJoined() {
+  detailVisible.value = false
+  router.push({ name: 'my-sect' })
 }
 
 function fmt(t) {
@@ -120,6 +126,11 @@ onMounted(async () => {
         <button class="back" @click="router.push({ name: 'home' })">‹ 返回洞府</button>
         <h1 class="title">天下宗门</h1>
         <div class="mine">
+          <button
+            v-if="auth.user?.sect_id"
+            class="back my-sect-btn"
+            @click="router.push({ name: 'my-sect' })"
+          >回本宗 ›</button>
           <span class="ling-shi">灵石 <b>{{ auth.user?.ling_shi ?? '—' }}</b></span>
         </div>
       </header>
@@ -199,11 +210,14 @@ onMounted(async () => {
       @created="onCreated"
     />
 
-    <!-- 宗门详情 -->
+    <!-- 宗门详情（入宗/退宗/解散/人事变动后刷新列表；拜入成功跳宗门主页） -->
     <SectDetailModal
       :visible="detailVisible"
       :sect-id="detailId"
+      :meta="meta"
       @close="detailVisible = false"
+      @changed="load"
+      @joined="onJoined"
     />
   </div>
 </template>
@@ -267,7 +281,11 @@ onMounted(async () => {
 .mine {
   margin-left: auto;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+.my-sect-btn { white-space: nowrap; }
 .ling-shi {
   padding: 6px 14px;
   background: rgba(255, 255, 255, 0.5);

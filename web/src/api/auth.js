@@ -18,6 +18,11 @@ export function apiLogout() {
   return http.post('/auth/logout')
 }
 
+// 注册页配置（公开）：{ emailCodeEnabled } 注册是否需要邮箱验证码
+export function apiRegisterConfig() {
+  return http.get('/auth/register-config')
+}
+
 // 发送邮箱验证码：purpose 取 'register'(注册) | 'reset'(重置密码)，同邮箱同用途 60 秒限频
 export function apiSendEmailCode(email, purpose) {
   return http.post('/auth/email-code', { email, purpose })

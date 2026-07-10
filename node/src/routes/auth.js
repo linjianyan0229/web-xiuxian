@@ -1,9 +1,11 @@
 import { Router } from 'express'
-import { register, login, logout, sendEmailCode, resetPassword } from '../controllers/authController.js'
+import { register, login, logout, sendEmailCode, resetPassword, registerConfig } from '../controllers/authController.js'
 import { authRequired } from '../middleware/auth.js'
 
 const router = Router()
 
+// 注册页配置（公开）：返回注册是否需要邮箱验证码，前端据此隐藏验证码输入
+router.get('/register-config', registerConfig)
 router.post('/register', register)
 router.post('/login', login)
 router.post('/logout', authRequired, logout)

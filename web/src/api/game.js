@@ -49,6 +49,17 @@ export const apiSectMeta = () => http.get('/user/sects/meta')
 export const apiSectDetail = (id) => http.get(`/user/sects/${id}`)
 export const apiSectCreate = (payload) => http.post('/user/sects', payload)
 
+// 宗门成员与职位：成员列表 / 加入 / 退出 / 任免 / 逐出 / 传位 / 改资料 / 解散
+export const apiSectMembers = (id, params) => http.get(`/user/sects/${id}/members`, { params })
+export const apiSectJoin = (id) => http.post(`/user/sects/${id}/join`)
+export const apiSectQuit = () => http.post('/user/sects/quit')
+export const apiSectAppoint = (id, targetId, position) =>
+  http.post(`/user/sects/${id}/appoint`, { targetId, position })
+export const apiSectKick = (id, targetId) => http.post(`/user/sects/${id}/kick`, { targetId })
+export const apiSectTransfer = (id, targetId) => http.post(`/user/sects/${id}/transfer`, { targetId })
+export const apiSectUpdate = (id, payload) => http.put(`/user/sects/${id}`, payload)
+export const apiSectDisband = (id) => http.post(`/user/sects/${id}/disband`)
+
 // 心跳：登录期间每 15 秒上报一次（pingMs 为上一跳实测往返延迟，在线榜网络状态数据源）
 export const apiHeartbeat = (pingMs) => http.post('/user/heartbeat', { pingMs })
 

@@ -7,7 +7,6 @@ import { apiGameRankings, apiSignInStatus, apiCultivateStatus, apiCultivate, api
 import SignInModal from '../components/SignInModal.vue'
 import BreakthroughModal from '../components/BreakthroughModal.vue'
 import MeditationModal from '../components/MeditationModal.vue'
-import PillBagModal from '../components/PillBagModal.vue'
 import UserAvatar from '../components/UserAvatar.vue'
 import AvatarModal from '../components/AvatarModal.vue'
 import AttributeModal from '../components/AttributeModal.vue'
@@ -37,9 +36,6 @@ let tickTimer = null
 
 // 境界突破弹窗
 const btVisible = ref(false)
-
-// 丹药背包弹窗（左侧导航「丹药」）
-const pillBagVisible = ref(false)
 
 // 更换头像弹窗（点击角色卡头像）
 const avatarVisible = ref(false)
@@ -484,11 +480,12 @@ function onFunc(name) {
   else soon(name)
 }
 
-// 左侧导航点击：丹药打开背包，宗门进入宗门列表页，修行为当前页，其余暂为占位
+// 左侧导航点击：丹药/宗门/伙伴进入各自独立页，修行为当前页，其余暂为占位
+// 宗门按归属分流：已入宗 → 我的宗门主页；散修 → 天下宗门列表
 function onNav(name, index) {
   if (index === 0) return
-  if (name === '丹药') pillBagVisible.value = true
-  else if (name === '宗门') router.push({ name: 'sect' })
+  if (name === '丹药') router.push({ name: 'pills' })
+  else if (name === '宗门') router.push({ name: auth.user?.sect_id ? 'my-sect' : 'sect' })
   else if (name === '伙伴') router.push({ name: 'friends' })
   else soon(name)
 }
@@ -656,6 +653,7 @@ onUnmounted(() => {
         <dl class="char-stats">
           <div><dt>境界</dt><dd class="gold">{{ realmName }}</dd></div>
           <div><dt>性别</dt><dd>{{ genderLabel }}</dd></div>
+          <div><dt>宗门</dt><dd class="ellip">{{ auth.user.sect_name || '散修' }}</dd></div>
           <div><dt>状态</dt><dd>{{ auth.user.status === 1 ? '正常' : '禁用' }}</dd></div>
           <div><dt>入道</dt><dd>{{ fmt(auth.user.register_time) }}</dd></div>
           <div><dt>上次登录</dt><dd>{{ fmt(auth.user.login_time) }}</dd></div>
@@ -845,13 +843,6 @@ onUnmounted(() => {
       @close="medVisible = false"
       @started="onMeditationStarted"
       @settled="onMeditationModalSettled"
-    />
-
-    <!-- 丹药背包（赠送/丢弃会写修行日志，变动后刷新日志） -->
-    <PillBagModal
-      :visible="pillBagVisible"
-      @close="pillBagVisible = false"
-      @changed="loadLogs"
     />
 
     <!-- 更换头像（上传本地图片或外链 URL，成功后回抛最新用户视图） -->

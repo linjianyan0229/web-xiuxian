@@ -9,8 +9,8 @@ import {
 import { listLogsByTypes } from '../models/playerLogModel.js'
 
 // 「通知请求」纳入的系统通知类型（玩家被动收到、需知悉的事件）。
-// 目前含丹药赠礼、好友结交请求/应允；后续宗门邀请等实装后在此追加即可。
-const NOTICE_TYPES = ['pill_receive', 'friend_request', 'friend_accepted']
+// 含丹药赠礼、好友结交请求/应允、宗门任免/逐出；后续宗门邀请等实装后在此追加即可。
+const NOTICE_TYPES = ['pill_receive', 'friend_request', 'friend_accepted', 'sect_appoint', 'sect_kick']
 
 // 公告标题/正文长度上限（与 DB VARCHAR 留余量）
 const MAX_TITLE_LEN = 60
