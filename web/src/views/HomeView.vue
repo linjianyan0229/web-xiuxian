@@ -43,7 +43,7 @@ const avatarVisible = ref(false)
 const attrVisible = ref(false)
 // 头像更换成功：后端已回最新用户视图，直接落到登录态并刷新日志
 function onAvatarUpdated(u) {
-  auth.user = u
+  auth.setUser(u)
   loadLogs()
 }
 

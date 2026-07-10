@@ -69,7 +69,7 @@ async function join() {
   busy.value = true
   try {
     const r = await apiSectJoin(sect.value.id)
-    if (r.user) auth.user = r.user
+    if (r.user) auth.setUser(r.user)
     toast.success(`已拜入【${sect.value.name}】门下`)
     emit('changed')
     emit('joined')
@@ -85,7 +85,7 @@ async function quit() {
   busy.value = true
   try {
     const r = await apiSectQuit()
-    if (r.user) auth.user = r.user
+    if (r.user) auth.setUser(r.user)
     toast.success('已重归散修之列')
     await load()
     emit('changed')
@@ -106,7 +106,7 @@ async function disband() {
   busy.value = true
   try {
     const r = await apiSectDisband(sect.value.id)
-    if (r.user) auth.user = r.user
+    if (r.user) auth.setUser(r.user)
     toast.success('宗门已解散')
     emit('changed')
     emit('close')

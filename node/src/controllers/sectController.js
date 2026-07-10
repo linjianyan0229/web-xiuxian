@@ -471,7 +471,10 @@ export async function doDisbandMySect(req, res, next) {
       return res.status(403).json({ error: '唯有宗主本人方可解散宗门' })
     }
 
-    await disbandSect(sectId)
+    const affected = await disbandSect(sectId, { leaderId: req.user.id })
+    if (!affected) {
+      return res.status(409).json({ error: '宗主之位已易主或宗门已散，无法解散' })
+    }
     await addLog(req.user.id, 'sect_disband', `将【${sect.name}】解散，众弟子皆散去，各奔前程`)
     const user = await findPublicById(req.user.id)
     res.json({ ok: true, user })

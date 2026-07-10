@@ -72,7 +72,7 @@ async function quit() {
   busy.value = true
   try {
     const r = await apiSectQuit()
-    if (r.user) auth.user = r.user
+    if (r.user) auth.setUser(r.user)
     toast.success('已重归散修之列')
     router.replace({ name: 'sect' })
   } catch (e) {
@@ -92,7 +92,7 @@ async function disband() {
   busy.value = true
   try {
     const r = await apiSectDisband(sect.value.id)
-    if (r.user) auth.user = r.user
+    if (r.user) auth.setUser(r.user)
     toast.success('宗门已解散')
     router.replace({ name: 'sect' })
   } catch (e) {

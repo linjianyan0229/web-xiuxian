@@ -46,6 +46,20 @@ const unreadMap = computed(() => {
 const unreadTotal = computed(() =>
   conversations.value.reduce((s, c) => s + (Number(c.unread) || 0), 0)
 )
+// 「陌生传音」：有私信往来但非好友的对象——后端允许向任意玩家传音，断交后会话也会脱离好友列表，
+// 这些会话若不渲染就只剩未读角标没有阅读入口
+const friendIdSet = computed(() => new Set(friends.value.map((u) => Number(u.id))))
+const blockedIdSet = computed(() => new Set(blocks.value.map((u) => Number(u.id))))
+const strangerConvs = computed(() =>
+  conversations.value.filter((c) => !friendIdSet.value.has(Number(c.id)))
+)
+const isPeerFriend = computed(
+  () => !!peer.value && friendIdSet.value.has(Number(peer.value.id))
+)
+// 已拉黑的会话仍可读（历史消息），但发送必被后端 403——输入区禁用并给「解除拉黑」入口
+const isPeerBlocked = computed(
+  () => !!peer.value && blockedIdSet.value.has(Number(peer.value.id))
+)
 const tabs = computed(() => [
   { key: 'friends', label: '好友', count: 0 },
   { key: 'groups', label: '群聊', count: 0 },
@@ -264,6 +278,33 @@ onUnmounted(stopChatPolling)
                 </span>
               </button>
               <p v-if="friends.length === 0" class="empty sm">尚无道友，去世界频道结交吧</p>
+
+              <!-- 陌生传音：非好友的私信会话（点开可读可回） -->
+              <template v-if="strangerConvs.length">
+                <p class="grp">陌生传音</p>
+                <button
+                  v-for="c in strangerConvs"
+                  :key="'s' + c.id"
+                  class="li"
+                  :class="{ sel: peer && peer.id === c.id }"
+                  @click="selectPeer(c)"
+                >
+                  <UserAvatar class="ava" :avatar="c.avatar" :name="c.dao_name" :size="40" />
+                  <span class="li-main">
+                    <b class="li-nm">
+                      {{ c.dao_name }}
+                      <em v-if="blockedIdSet.has(Number(c.id))" class="blk">已拉黑</em>
+                    </b>
+                    <small class="li-sub">
+                      <i class="dot" :class="{ on: c.is_online }"></i>
+                      {{ c.realm_name || '凡人' }} · {{ c.last_content }}
+                    </small>
+                  </span>
+                  <span v-if="unreadMap[c.id]" class="badge">
+                    {{ unreadMap[c.id] > 99 ? '99+' : unreadMap[c.id] }}
+                  </span>
+                </button>
+              </template>
             </template>
 
             <!-- 群聊（占位） -->
@@ -317,8 +358,9 @@ onUnmounted(stopChatPolling)
                 <small class="c-sub">{{ peer.realm_name || '凡人' }} · {{ peer.sect_name || '散修' }}</small>
               </div>
               <div class="c-ops">
-                <button class="mini" :disabled="acting" @click="removeFriend(peer)">断交</button>
-                <button class="mini danger" :disabled="acting" @click="blockFromChat(peer)">拉黑</button>
+                <button v-if="isPeerFriend" class="mini" :disabled="acting" @click="removeFriend(peer)">断交</button>
+                <button v-if="!isPeerBlocked" class="mini danger" :disabled="acting" @click="blockFromChat(peer)">拉黑</button>
+                <button v-else class="mini" :disabled="acting" @click="unblock(peer)">解除拉黑</button>
               </div>
             </header>
 
@@ -346,10 +388,15 @@ onUnmounted(stopChatPolling)
                 class="c-ipt"
                 type="text"
                 maxlength="200"
-                placeholder="传音入密…（≤200 字，回车发送）"
+                :disabled="isPeerBlocked"
+                :placeholder="isPeerBlocked ? '已拉黑此道友，解除拉黑后方可传音' : '传音入密…（≤200 字，回车发送）'"
                 @keyup.enter="sendChat"
               />
-              <button class="c-send" :disabled="chatSending || !chatInput.trim()" @click="sendChat">
+              <button
+                class="c-send"
+                :disabled="isPeerBlocked || chatSending || !chatInput.trim()"
+                @click="sendChat"
+              >
                 传音
               </button>
             </div>
@@ -597,6 +644,28 @@ onUnmounted(stopChatPolling)
 .mini.gold:hover:not(:disabled) { filter: brightness(1.05); color: #4a3a12; }
 .mini.danger { border-color: rgba(180, 69, 58, 0.45); }
 .mini.danger:hover:not(:disabled) { background: linear-gradient(180deg, #c85a4e, #b4453a); }
+
+.grp {
+  margin: 8px 6px 2px;
+  font-size: 11.5px;
+  letter-spacing: 2px;
+  color: var(--ink-mut);
+}
+.blk {
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 400;
+  color: #b4453a;
+  border: 1px solid rgba(180, 69, 58, 0.45);
+  border-radius: 6px;
+  vertical-align: 1px;
+}
+.c-ipt:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 .soon-box {
   margin: auto;

@@ -113,14 +113,22 @@ export async function updateSect(id, fields) {
   return result.affectedRows
 }
 
-// 解散宗门（事务）：清空全体成员的 sect_id、清成员表并删除宗门行；返回受影响宗门行数（0=不存在）
-export async function disbandSect(id) {
+// 解散宗门（事务）：先带守卫删宗门行（守卫未过即整体放弃），再清全体成员归属与成员表。
+// 传 leaderId 时要求删除时刻仍由其执掌——宗主身份在事务内校验，防「传位提交后旧宗主仍解散」的并发窗口
+// （与 transferLeader 的 UPDATE sects 互斥于同一行锁，谁后到谁失败）。返回受影响宗门行数（0=不存在/已易主）
+export async function disbandSect(id, { leaderId = null } = {}) {
   const conn = await getPool().getConnection()
   try {
     await conn.beginTransaction()
+    const [del] = leaderId
+      ? await conn.execute('DELETE FROM sects WHERE id = ? AND leader_id = ?', [id, leaderId])
+      : await conn.execute('DELETE FROM sects WHERE id = ?', [id])
+    if (del.affectedRows === 0) {
+      await conn.rollback()
+      return 0
+    }
     await conn.execute('UPDATE users SET sect_id = NULL WHERE sect_id = ?', [id])
     await conn.execute('DELETE FROM sect_members WHERE sect_id = ?', [id])
-    const [del] = await conn.execute('DELETE FROM sects WHERE id = ?', [id])
     await conn.commit()
     return del.affectedRows
   } catch (err) {
@@ -266,12 +274,23 @@ export async function appointMember({ sectId, targetId, position, quota }) {
 }
 
 // 转让宗主之位（事务）：新宗主须为本宗成员；原宗主卸任改任太上长老（编制校验）。
+// 加锁顺序统一为「先 sects 行、后 sect_members」——与 disbandSect/joinSect 同序，
+// 反序（先锁成员再锁宗门）会与并发解散互等死锁（全局错误处理无重试，死锁直接 500）。
 // 返回 {} 成功；{ error: 'not_leader' | 'not_member' | 'taishang_full' }
 export async function transferLeader({ sectId, fromId, toId, taishangQuota }) {
   const conn = await getPool().getConnection()
   try {
     await conn.beginTransaction()
-    // 原宗主卸任后任太上长老：先锁定在编太上校验编制
+    // 先锁宗门行并校验仍由 fromId 执掌（宗主身份进事务内判定）
+    const [sects] = await conn.execute(
+      'SELECT id FROM sects WHERE id = ? AND leader_id = ? FOR UPDATE',
+      [sectId, fromId]
+    )
+    if (sects.length === 0) {
+      await conn.rollback()
+      return { error: 'not_leader' }
+    }
+    // 原宗主卸任后任太上长老：锁定在编太上校验编制
     const [cnt] = await conn.execute(
       "SELECT COUNT(*) AS c FROM sect_members WHERE sect_id = ? AND position = 'taishang_elder' FOR UPDATE",
       [sectId]
@@ -279,14 +298,6 @@ export async function transferLeader({ sectId, fromId, toId, taishangQuota }) {
     if (cnt[0].c >= taishangQuota) {
       await conn.rollback()
       return { error: 'taishang_full' }
-    }
-    const [lead] = await conn.execute(
-      'UPDATE sects SET leader_id = ? WHERE id = ? AND leader_id = ?',
-      [toId, sectId, fromId]
-    )
-    if (lead.affectedRows === 0) {
-      await conn.rollback()
-      return { error: 'not_leader' }
     }
     const [toUpd] = await conn.execute(
       "UPDATE sect_members SET position = 'sect_master' WHERE sect_id = ? AND user_id = ?",
@@ -300,6 +311,7 @@ export async function transferLeader({ sectId, fromId, toId, taishangQuota }) {
       "UPDATE sect_members SET position = 'taishang_elder' WHERE sect_id = ? AND user_id = ?",
       [sectId, fromId]
     )
+    await conn.execute('UPDATE sects SET leader_id = ? WHERE id = ?', [toId, sectId])
     await conn.commit()
     return {}
   } catch (err) {

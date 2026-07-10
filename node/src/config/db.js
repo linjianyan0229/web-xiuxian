@@ -286,6 +286,7 @@ CREATE TABLE IF NOT EXISTS friendships (
   updated_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近变动时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_pair (requester_id, addressee_id),
+  UNIQUE KEY uk_pair_nodir ((LEAST(requester_id, addressee_id)), (GREATEST(requester_id, addressee_id))),
   KEY idx_addressee (addressee_id, status),
   KEY idx_requester (requester_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='好友关系表';
@@ -547,6 +548,30 @@ async function ensureColumn(table, column, definition) {
   }
 }
 
+// 幂等补无向唯一键：老 friendships 表只有「同向」唯一键 uk_pair，双方同时发起结交时
+// 「查询后插入」非原子，可能落两条反向行。补一条 LEAST/GREATEST 函数唯一键在 DB 层兜底；
+// 加键前先清既有反向重复——保留优先级 status 高者（已结交 > 待通过，防把已结交降级回待应允），
+// 同 status 保留 id 较小的先到者。需 MySQL >= 8.0.13（函数索引）。
+async function ensureFriendshipPairIndex() {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'friendships' AND INDEX_NAME = 'uk_pair_nodir'`,
+    [config.db.name]
+  )
+  if (rows[0].c > 0) return
+  await pool.query(
+    `DELETE f2 FROM friendships f1
+     JOIN friendships f2
+       ON f1.requester_id = f2.addressee_id AND f1.addressee_id = f2.requester_id
+      AND (f1.status > f2.status OR (f1.status = f2.status AND f1.id < f2.id))`
+  )
+  await pool.query(
+    `ALTER TABLE friendships
+     ADD UNIQUE KEY uk_pair_nodir ((LEAST(requester_id, addressee_id)), (GREATEST(requester_id, addressee_id)))`
+  )
+  console.log('已为 friendships 补无向唯一键 uk_pair_nodir（并清理反向重复关系）')
+}
+
 // 幂等删列：列存在时删除（用于淘汰旧字段）
 async function dropColumn(table, column) {
   const [rows] = await pool.query(
@@ -733,6 +758,8 @@ export async function initDatabase() {
   await dropColumn('users', 'email_code')
   // 清理旧设计：管理员已并入 users 表
   await pool.query('DROP TABLE IF EXISTS admins')
+  // 好友关系表补无向唯一键（老库迁移，防双方同时发起结交落两条反向行）
+  await ensureFriendshipPairIndex()
   // 宗门成员表存量回填（幂等）：职位体系上线前已入宗的用户补成员行——宗主记宗主，其余记外门弟子
   await pool.query(
     `INSERT INTO sect_members (sect_id, user_id, position)

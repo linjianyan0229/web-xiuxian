@@ -36,11 +36,18 @@ export const useAuthStore = defineStore('auth', () => {
     persist()
   }
 
+  // 接口回抛最新用户视图时统一走此处落状态——直接对 auth.user 赋值不会写 localStorage，
+  // 刷新页面会读到旧快照（如立派后 sect_id 仍为空导致 /my-sect 误判回列表）
+  function setUser(u) {
+    user.value = u
+    persist()
+  }
+
   function logout() {
     token.value = ''
     user.value = null
     persist()
   }
 
-  return { token, user, login, register, fetchProfile, logout }
+  return { token, user, login, register, fetchProfile, setUser, logout }
 })

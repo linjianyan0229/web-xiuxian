@@ -1,8 +1,9 @@
 import { query } from '../config/db.js'
 
 // 好友关系数据访问。一行代表一对用户的关系（requester 发起、addressee 接收），
-// status: 0=待通过, 1=已结交。是否好友需查两个方向；uk_pair 只约束「同向」不重复，
-// 反向请求（对方也向我发起）由控制器在写入前用 findBetween 兜底拦截。
+// status: 0=待通过, 1=已结交。是否好友需查两个方向；uk_pair 约束「同向」不重复，
+// 无向唯一键 uk_pair_nodir(LEAST, GREATEST) 保证一对用户至多一行——双方并发互发时
+// 后到的 INSERT 抛 ER_DUP_ENTRY，由控制器捕获后按实际关系回执。
 
 // 二人之间的关系行（任一方向），无则 null
 export async function findBetween(aId, bId) {
@@ -21,7 +22,7 @@ export async function findById(id) {
   return rows[0] || null
 }
 
-// 发起结交请求（status=0）；唯一键冲突交由控制器先行 findBetween 规避
+// 发起结交请求（status=0）；并发下唯一键冲突（ER_DUP_ENTRY）由控制器捕获处理
 export async function createRequest(requesterId, addresseeId) {
   const result = await query(
     'INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 0)',

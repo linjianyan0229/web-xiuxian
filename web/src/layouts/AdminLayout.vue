@@ -13,7 +13,7 @@ const auth = useAuthStore()
 onMounted(async () => {
   try {
     const { admin } = await apiAdminProfile()
-    auth.user = admin
+    auth.setUser(admin)
   } catch {
     /* 拦截器已处理跳转 */
   }

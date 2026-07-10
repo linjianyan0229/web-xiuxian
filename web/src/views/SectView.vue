@@ -89,7 +89,7 @@ function openCreate() {
 
 // 创建成功：后端已回最新用户视图（灵石扣减/入驻），落登录态并进入宗门主页
 function onCreated(payload) {
-  if (payload?.user) auth.user = payload.user
+  if (payload?.user) auth.setUser(payload.user)
   createVisible.value = false
   toast.success(`【${payload.sect.name}】开宗立派，道友已为一派宗主`)
   router.push({ name: 'my-sect' })

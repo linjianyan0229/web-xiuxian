@@ -111,7 +111,18 @@ export async function requestFriend(req, res, next) {
       return res.status(409).json({ error: '此道友已向你发出结交之邀，请前往应允' })
     }
 
-    await createRequest(req.user.id, target.id)
+    try {
+      await createRequest(req.user.id, target.id)
+    } catch (err) {
+      // 双方同时发起时「查询后插入」非原子，靠无向唯一键 uk_pair_nodir 兜底；按落库后的实际关系回执
+      if (err.code !== 'ER_DUP_ENTRY') throw err
+      const now = await findBetween(req.user.id, target.id)
+      if (now?.status === 1) return res.status(409).json({ error: '你们已是道友' })
+      if (now && now.requester_id !== req.user.id) {
+        return res.status(409).json({ error: '此道友已向你发出结交之邀，请前往应允' })
+      }
+      return res.status(409).json({ error: '结交之邀已发出，静待回应' })
+    }
     await addLog(target.id, 'friend_request', `道友【${req.user.dao_name}】欲与你结交`)
     res.status(201).json({ ok: true })
   } catch (err) {

@@ -493,8 +493,27 @@ onMounted(async () => {
     min-height: 100svh;
     padding: 14px 14px 20px;
   }
-  .list-wrap { overflow-y: visible; }
-  .row { grid-template-columns: 40px minmax(110px, 1.4fr) 64px 44px 150px; }
+  /* 列表宽于视口时在自身容器内横滚（行加 min-width 保证表头/行与底边线同宽），页面本身不得出横向滚动条 */
+  .list-wrap {
+    overflow-y: visible;
+    overflow-x: auto;
+    scrollbar-width: thin; /* 露出横滚条提示还有内容 */
+  }
+  .list-wrap::-webkit-scrollbar { width: 0; height: 6px; }
+  .list-wrap::-webkit-scrollbar-thumb {
+    background: rgba(60, 56, 46, 0.28);
+    border-radius: 3px;
+  }
+  .row { min-width: 500px; grid-template-columns: 40px minmax(110px, 1.4fr) 64px 44px 150px; }
+  /* 操作列吸附可视区右缘：横滚与否始终可见可点（不透明底遮住滚过的列 + 左缘投影示意有内容被压住） */
+  .row > :last-child {
+    position: sticky;
+    right: 0;
+    padding-left: 8px;
+    background: #f4f2e9;
+    box-shadow: -10px 0 10px -8px rgba(40, 38, 30, 0.28);
+  }
+  .row-head > :last-child { background: #f0efe7; }
   .col-sum,
   .col-cat { display: none; }
   .search { margin-left: 0; }
