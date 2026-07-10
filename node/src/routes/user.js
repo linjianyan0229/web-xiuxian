@@ -22,6 +22,12 @@ import {
   doUpdateMySect,
   doDisbandMySect,
 } from '../controllers/sectController.js'
+import {
+  getWarehouse,
+  doDeposit,
+  doWithdraw,
+  doUpgrade,
+} from '../controllers/sectWarehouseController.js'
 import { checkSensitive } from '../controllers/sensitiveController.js'
 import { getAnnouncements } from '../controllers/announcementController.js'
 import {
@@ -86,6 +92,11 @@ router.get('/sects/meta', authRequired, getSectMeta)
 router.get('/sects', authRequired, getSects)
 router.get('/sects/:id', authRequired, getSectDetail)
 router.post('/sects', authRequired, doCreateSect)
+// 需鉴权：宗门仓库 —— 概览+物品 / 存入 / 取出(管理权) / 升级(管理权)
+router.get('/sects/:id/warehouse', authRequired, getWarehouse)
+router.post('/sects/:id/warehouse/deposit', authRequired, doDeposit)
+router.post('/sects/:id/warehouse/withdraw', authRequired, doWithdraw)
+router.post('/sects/:id/warehouse/upgrade', authRequired, doUpgrade)
 // 需鉴权：宗门成员与职位 —— 成员列表 / 加入 / 退出 / 任免 / 逐出 / 传位 / 改资料 / 解散
 router.get('/sects/:id/members', authRequired, getSectMembers)
 router.post('/sects/quit', authRequired, doQuitSect)

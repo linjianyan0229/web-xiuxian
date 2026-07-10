@@ -60,6 +60,12 @@ export const apiSectTransfer = (id, targetId) => http.post(`/user/sects/${id}/tr
 export const apiSectUpdate = (id, payload) => http.put(`/user/sects/${id}`, payload)
 export const apiSectDisband = (id) => http.post(`/user/sects/${id}/disband`)
 
+// 宗门仓库：概览+物品（本宗成员）/ 存入 / 取出（管理权）/ 升级（管理权，扣个人灵石）
+export const apiSectWarehouse = (id, params) => http.get(`/user/sects/${id}/warehouse`, { params })
+export const apiSectWhDeposit = (id, payload) => http.post(`/user/sects/${id}/warehouse/deposit`, payload)
+export const apiSectWhWithdraw = (id, payload) => http.post(`/user/sects/${id}/warehouse/withdraw`, payload)
+export const apiSectWhUpgrade = (id) => http.post(`/user/sects/${id}/warehouse/upgrade`)
+
 // 心跳：登录期间每 15 秒上报一次（pingMs 为上一跳实测往返延迟，在线榜网络状态数据源）
 export const apiHeartbeat = (pingMs) => http.post('/user/heartbeat', { pingMs })
 

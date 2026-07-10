@@ -90,6 +90,8 @@ export async function createSect({ leaderId, name, intro, avatar, background, re
       "INSERT INTO sect_members (sect_id, user_id, position) VALUES (?, ?, 'sect_master')",
       [ins.insertId, leaderId]
     )
+    // 仓库随建宗建档（1 级）——不走惰性补建，防解散并发下重建孤儿仓库
+    await conn.execute('INSERT INTO sect_warehouses (sect_id) VALUES (?)', [ins.insertId])
     await conn.commit()
     return { id: ins.insertId }
   } catch (err) {
@@ -129,6 +131,8 @@ export async function disbandSect(id, { leaderId = null } = {}) {
     }
     await conn.execute('UPDATE users SET sect_id = NULL WHERE sect_id = ?', [id])
     await conn.execute('DELETE FROM sect_members WHERE sect_id = ?', [id])
+    await conn.execute('DELETE FROM sect_warehouses WHERE sect_id = ?', [id])
+    await conn.execute('DELETE FROM sect_warehouse_items WHERE sect_id = ?', [id])
     await conn.commit()
     return del.affectedRows
   } catch (err) {

@@ -6,8 +6,10 @@ import { apiSectDetail, apiSectMeta, apiSectQuit, apiSectDisband } from '../api/
 import UserAvatar from '../components/UserAvatar.vue'
 import SectMembersModal from '../components/SectMembersModal.vue'
 import SectCreateModal from '../components/SectCreateModal.vue'
+import SectWarehouseModal from '../components/SectWarehouseModal.vue'
 import { useToast } from '../composables/toast.js'
 import { fmtDateTime } from '../utils/datetime.js'
+import { SECT_FACILITIES } from '../utils/sectFacilities.js'
 import bgImg from '../../image/zongmenbeijing.webp'
 
 const router = useRouter()
@@ -21,24 +23,39 @@ const loading = ref(true)
 const busy = ref(false)
 const membersVisible = ref(false)
 const editVisible = ref(false)
+const warehouseVisible = ref(false)
 
 const isLeader = computed(() => !!sect.value && sect.value.leader_id === auth.user?.id)
 const canEditInfo = computed(() => !!my.value && my.value.rank <= 3)
 
-// 宗门设施（二期占位，对应文稿 docs/设计文档/宗门职位与权限机制.md §7/§8）
+// 宗门设施：开启门槛按宗门人数（utils/sectFacilities.js，与后端对应）。
+// 仓库建宗直接拥有已实装；其余达标显示「待启」（本体二期），未达标灰化标注门槛。
+// 机制文档：docs/设计文档/宗门设施与仓库机制.md
 const facilities = [
-  { icon: '📜', name: '藏经阁', desc: '功法秘典，兑换传承' },
-  { icon: '🏪', name: '宗门商店', desc: '贡献灵石，兑换物资' },
-  { icon: '🧘', name: '闭关室', desc: '静室清修，修炼增益' },
-  { icon: '📦', name: '宗门仓库', desc: '公共资源，存取调配' },
-  { icon: '🗒️', name: '宗门任务', desc: '领取宗务，赚取贡献' },
-  { icon: '⚖️', name: '执法堂', desc: '门规刑罚，举报文书' },
-  { icon: '🔒', name: '宗门大牢', desc: '关押违纪，听候发落' },
-  { icon: '⛰️', name: '山峰', desc: '诸峰林立，真传所属' },
-]
+  { key: 'warehouse', icon: '📦', desc: '公共资源，存取调配' },
+  { key: 'task', icon: '🗒️', desc: '领取宗务，赚取贡献' },
+  { key: 'scripture', icon: '📜', desc: '功法秘典，兑换传承' },
+  { key: 'shop', icon: '🏪', desc: '贡献灵石，兑换物资' },
+  { key: 'retreat', icon: '🧘', desc: '静室清修，修炼增益' },
+  { key: 'enforce', icon: '⚖️', desc: '门规刑罚，举报文书' },
+  { key: 'prison', icon: '🔒', desc: '关押违纪，听候发落' },
+  { key: 'peak', icon: '⛰️', desc: '诸峰林立，真传所属' },
+].map((f) => ({ ...f, ...SECT_FACILITIES[f.key] }))
 
-function soon(name) {
-  toast.info(`「${name}」尚未开放，敬请期待`)
+function facilityUnlocked(f) {
+  return Number(sect.value?.member_count ?? 0) >= f.minMembers
+}
+
+function onFacility(f) {
+  if (!facilityUnlocked(f)) {
+    toast.info(`「${f.name}」须门人 ${f.minMembers} 人方可开启（现 ${sect.value?.member_count ?? 0} 人）`)
+    return
+  }
+  if (f.key === 'warehouse') {
+    warehouseVisible.value = true
+    return
+  }
+  toast.info(`「${f.name}」尚未开放，敬请期待`)
 }
 
 // 拉本宗详情；已不在宗门（退宗/被逐/解散）则回天下宗门列表
@@ -186,11 +203,19 @@ onMounted(async () => {
         <main class="facilities">
           <h3 class="fac-title">宗门设施</h3>
           <div class="fac-grid">
-            <button v-for="f in facilities" :key="f.name" class="fac" @click="soon(f.name)">
+            <button
+              v-for="f in facilities"
+              :key="f.key"
+              class="fac"
+              :class="{ locked: !facilityUnlocked(f) }"
+              @click="onFacility(f)"
+            >
               <span class="fac-icon">{{ f.icon }}</span>
               <b class="fac-name">{{ f.name }}</b>
               <small class="fac-desc">{{ f.desc }}</small>
-              <i class="fac-soon">待启</i>
+              <i v-if="!facilityUnlocked(f)" class="fac-soon need">需 {{ f.minMembers }} 人</i>
+              <i v-else-if="f.key === 'warehouse'" class="fac-soon open">可用</i>
+              <i v-else class="fac-soon">待启</i>
             </button>
           </div>
         </main>
@@ -214,6 +239,14 @@ onMounted(async () => {
       :meta="meta"
       @close="editVisible = false"
       @updated="onUpdated"
+    />
+
+    <!-- 宗门仓库（存取/升级） -->
+    <SectWarehouseModal
+      :visible="warehouseVisible"
+      :sect-id="sect?.id ?? 0"
+      :sect-name="sect?.name ?? ''"
+      @close="warehouseVisible = false"
     />
   </div>
 </template>
@@ -491,6 +524,15 @@ onMounted(async () => {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.5);
 }
+.fac-soon.open {
+  color: #4a3a12;
+  background: rgba(184, 147, 63, 0.18);
+  border-color: rgba(184, 147, 63, 0.5);
+}
+.fac-soon.need { color: #a06a5a; border-color: rgba(180, 69, 59, 0.3); }
+/* 未达门槛：灰化但仍可点击（点击提示所需人数） */
+.fac.locked { opacity: 0.62; filter: saturate(0.4); }
+.fac.locked:hover { transform: none; border-color: var(--panel-line); }
 
 /* 窄屏：放开整页滚动、单列堆叠 */
 @media (max-width: 860px) {

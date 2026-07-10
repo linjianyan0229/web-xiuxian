@@ -20,7 +20,8 @@ export async function listUserPills(
   { page = 1, pageSize = 8, keyword = '', category = '', realm = '', grade = '' } = {}
 ) {
   const p = Math.max(1, parseInt(page, 10) || 1)
-  const size = Math.min(50, Math.max(1, parseInt(pageSize, 10) || 8))
+  // 单页上限 100：装备页「纳戒储物」一次取 100 件铺格子，勿低于其请求量（否则静默截断）
+  const size = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 8))
   const offset = (p - 1) * size
 
   let where = 'WHERE up.user_id = ? AND up.quantity > 0'

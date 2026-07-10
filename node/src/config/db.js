@@ -222,6 +222,34 @@ CREATE TABLE IF NOT EXISTS sect_members (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='宗门成员表(职位体系)';
 `
 
+// 建表语句：宗门仓库等级表（建宗直接拥有，初始 1 级；行惰性建档 INSERT IGNORE，存量宗门首次访问自动补）
+const CREATE_SECT_WAREHOUSES_TABLE = `
+CREATE TABLE IF NOT EXISTS sect_warehouses (
+  sect_id      BIGINT UNSIGNED NOT NULL              COMMENT '宗门(sects.id)',
+  level        INT UNSIGNED    NOT NULL DEFAULT 1    COMMENT '仓库等级(容量=100+(级-1)*50格, 满级10)',
+  updated_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近变动时间',
+  PRIMARY KEY (sect_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='宗门仓库等级表';
+`
+
+// 建表语句：宗门仓库物品表——一行一格；可叠加物品（丹药同种同品质）合并一行计数。
+// item_type 为后续功法/法宝入库预留（现仅 pill，item_id=pills.id）
+const CREATE_SECT_WAREHOUSE_ITEMS_TABLE = `
+CREATE TABLE IF NOT EXISTS sect_warehouse_items (
+  id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID(一行=一格)',
+  sect_id      BIGINT UNSIGNED NOT NULL              COMMENT '宗门(sects.id)',
+  item_type    VARCHAR(16)     NOT NULL DEFAULT 'pill' COMMENT '物品类型: pill(丹药), 功法/法宝预留',
+  item_id      VARCHAR(64)     NOT NULL              COMMENT '物品ID(丹药=pills.id)',
+  grade        VARCHAR(8)      NOT NULL DEFAULT ''   COMMENT '品质(丹药: fan/ling/dao)',
+  quantity     INT UNSIGNED    NOT NULL DEFAULT 0    COMMENT '数量(可叠加物品累计)',
+  created_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
+  updated_time DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近变动时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_item (sect_id, item_type, item_id, grade),
+  KEY idx_sect (sect_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='宗门仓库物品表';
+`
+
 // 建表语句：修行日志表（记录玩家每次操作：注册/登录/签到/修炼等，前台首页「修行日志」展示）
 const CREATE_PLAYER_LOGS_TABLE = `
 CREATE TABLE IF NOT EXISTS player_logs (
@@ -642,6 +670,8 @@ export async function initDatabase() {
   await pool.query(CREATE_EMAIL_CODES_TABLE)
   await pool.query(CREATE_SECTS_TABLE)
   await pool.query(CREATE_SECT_MEMBERS_TABLE)
+  await pool.query(CREATE_SECT_WAREHOUSES_TABLE)
+  await pool.query(CREATE_SECT_WAREHOUSE_ITEMS_TABLE)
   await pool.query(CREATE_PLAYER_LOGS_TABLE)
   await pool.query(CREATE_USER_DAILY_STATS_TABLE)
   await pool.query(CREATE_WORLD_MESSAGES_TABLE)
@@ -760,6 +790,18 @@ export async function initDatabase() {
   await pool.query('DROP TABLE IF EXISTS admins')
   // 好友关系表补无向唯一键（老库迁移，防双方同时发起结交落两条反向行）
   await ensureFriendshipPairIndex()
+  // 仓库建档回填（幂等）：仓库改为建宗事务创建，此处给存量宗门补 1 级仓库行（不再惰性补建）；
+  // 并清理旧惰性建档在「解散并发」下可能残留的孤儿仓库（宗门已不存在的等级行与物品行）
+  await pool.query(
+    `INSERT IGNORE INTO sect_warehouses (sect_id)
+     SELECT id FROM sects`
+  )
+  await pool.query(
+    'DELETE w FROM sect_warehouses w LEFT JOIN sects s ON s.id = w.sect_id WHERE s.id IS NULL'
+  )
+  await pool.query(
+    'DELETE i FROM sect_warehouse_items i LEFT JOIN sects s ON s.id = i.sect_id WHERE s.id IS NULL'
+  )
   // 宗门成员表存量回填（幂等）：职位体系上线前已入宗的用户补成员行——宗主记宗主，其余记外门弟子
   await pool.query(
     `INSERT INTO sect_members (sect_id, user_id, position)

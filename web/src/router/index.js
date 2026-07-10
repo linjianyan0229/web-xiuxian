@@ -50,6 +50,12 @@ const routes = [
     component: () => import('../views/PillsView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/equipment',
+    name: 'equipment',
+    component: () => import('../views/EquipmentView.vue'),
+    meta: { requiresAuth: true },
+  },
 
   /* ---------- 后台管理（登录统一走 /login，按 role 进入） ---------- */
   {

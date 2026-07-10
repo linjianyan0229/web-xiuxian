@@ -63,7 +63,7 @@ const rankTabs = [
 ]
 
 // 左侧功能栏（游戏模块，多数待开发）
-const navItems = ['修行', '探索', '功法', '法宝', '丹药', '宗门', '伙伴']
+const navItems = ['修行', '探索', '功法', '法宝', '装备', '丹药', '宗门', '伙伴']
 
 // 世界频道（全服聊天：进页拉最新一批，此后 5 秒一轮增量拉取；发言冷却由服务端把关）
 const chatMsgs = ref([])
@@ -243,7 +243,7 @@ const resources = computed(() => {
   return list
 })
 // 常用功能
-const funcs = ['纳戒', '传功', '吐纳', '打坐', '炼丹', '炼器', '阵法']
+const funcs = ['纳戒', '传功', '打坐', '炼丹', '炼器', '阵法']
 // 修炼增益（凡人无加成）
 const buffs = [
   ['修为获取', '+0%'],
@@ -480,11 +480,12 @@ function onFunc(name) {
   else soon(name)
 }
 
-// 左侧导航点击：丹药/宗门/伙伴进入各自独立页，修行为当前页，其余暂为占位
+// 左侧导航点击：装备/丹药/宗门/伙伴进入各自独立页，修行为当前页，其余暂为占位
 // 宗门按归属分流：已入宗 → 我的宗门主页；散修 → 天下宗门列表
 function onNav(name, index) {
   if (index === 0) return
-  if (name === '丹药') router.push({ name: 'pills' })
+  if (name === '装备') router.push({ name: 'equipment' })
+  else if (name === '丹药') router.push({ name: 'pills' })
   else if (name === '宗门') router.push({ name: auth.user?.sect_id ? 'my-sect' : 'sect' })
   else if (name === '伙伴') router.push({ name: 'friends' })
   else soon(name)
