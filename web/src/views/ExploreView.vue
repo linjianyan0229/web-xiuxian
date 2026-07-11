@@ -53,18 +53,22 @@ onMounted(async () => {
           <p class="p-sub">选定历练时辰，亦可投入灵石加持此行——境况凶吉，出发方知。</p>
 
           <div class="d-grid" role="radiogroup" aria-label="历练时长">
-            <button
+            <label
               v-for="d in DURATIONS"
               :key="d.minutes"
               class="d-opt"
               :class="{ on: minutes === d.minutes }"
-              role="radio"
-              :aria-checked="minutes === d.minutes"
-              @click="minutes = d.minutes"
             >
+              <input
+                v-model="minutes"
+                class="d-radio"
+                type="radio"
+                name="explore-duration"
+                :value="d.minutes"
+              />
               <span class="d-label">{{ d.label }}</span>
               <span class="d-min">{{ d.minutes }} 分钟</span>
-            </button>
+            </label>
           </div>
 
           <label class="spend">
@@ -212,6 +216,7 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 .d-opt {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -226,6 +231,22 @@ onMounted(async () => {
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 .d-opt:hover { border-color: var(--gold); }
+/* 原生 radio 视觉隐藏（不可 display:none，保住键盘可达性与方向键切换） */
+.d-radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.d-opt:focus-within {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(184, 147, 63, 0.3);
+}
 .d-opt.on {
   border-color: var(--gold);
   background: linear-gradient(180deg, rgba(242, 221, 166, 0.4), rgba(212, 175, 91, 0.22));

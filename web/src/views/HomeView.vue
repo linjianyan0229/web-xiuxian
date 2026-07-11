@@ -1689,4 +1689,29 @@ onUnmounted(() => {
   .rail { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .rail-item { flex: 0 0 auto; padding: 10px 14px; }
 }
+
+/* 顶栏窄屏重排：品牌+操作区同居首行，资源栏独占次行横向滚动（防 320px 视口横向溢出） */
+@media (max-width: 720px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 12px;
+  }
+  .brand { order: 1; min-width: 0; }
+  .brand-logo { width: 36px; height: 36px; }
+  .brand h1 { font-size: 19px; letter-spacing: 2px; white-space: nowrap; }
+  .brand p { display: none; }
+  .top-actions { order: 2; margin-left: auto; }
+  .resources {
+    order: 3;
+    flex-basis: 100%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scrollbar-width: thin;
+  }
+  .res { flex: 0 0 auto; font-size: 12px; padding: 4px 10px; }
+}
 </style>
