@@ -17,6 +17,13 @@ import {
 } from '../controllers/adminController.js'
 import { getPills, getPillMeta, editPill, editPillGrade } from '../controllers/pillController.js'
 import {
+  adminGetMaterials,
+  adminGetMaterialMeta,
+  adminGetMaterialDetail,
+  adminGetRecipes,
+  adminGetPillRecipe,
+} from '../controllers/pillMaterialController.js'
+import {
   getTechniques,
   getTechniqueMeta,
   addTechnique,
@@ -58,8 +65,14 @@ router.patch('/configs/:key', adminAuthRequired, updateConfigItem)
 // 丹药管理（meta 需先于 :id 类路由声明）
 router.get('/pills/meta', adminAuthRequired, getPillMeta)
 router.get('/pills', adminAuthRequired, getPills)
+router.get('/pills/:id/recipe', adminAuthRequired, adminGetPillRecipe)
 router.put('/pills/:id', adminAuthRequired, editPill)
 router.put('/pills/:id/grades/:grade', adminAuthRequired, editPillGrade)
+// 成丹材料与丹方（只读；meta 需先于 :id 类路由声明）
+router.get('/materials/meta', adminAuthRequired, adminGetMaterialMeta)
+router.get('/materials', adminAuthRequired, adminGetMaterials)
+router.get('/materials/:id', adminAuthRequired, adminGetMaterialDetail)
+router.get('/recipes', adminAuthRequired, adminGetRecipes)
 // 功法管理（增删改查；meta 需先于 :id 类路由声明）
 router.get('/techniques/meta', adminAuthRequired, getTechniqueMeta)
 router.get('/techniques', adminAuthRequired, getTechniques)

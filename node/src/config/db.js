@@ -102,6 +102,54 @@ CREATE TABLE IF NOT EXISTS pill_grades (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='丹药品质表';
 `
 
+// 建表语句：成丹材料表（一行一种材料，id 来自数据文件 pill-materials.json，如 mat_fanren_01）
+const CREATE_PILL_MATERIALS_TABLE = `
+CREATE TABLE IF NOT EXISTS pill_materials (
+  id           VARCHAR(64)  NOT NULL              COMMENT '材料ID(数据文件)',
+  name         VARCHAR(64)  NOT NULL              COMMENT '材料名',
+  type         VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '类型: herb/mineral/beast/essence/misc',
+  type_name    VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '类型名: 灵植/矿石/兽材/精魄/丹引',
+  rarity       VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '稀有度: common/uncommon/rare/epic/legendary',
+  rarity_name  VARCHAR(16)  NOT NULL DEFAULT ''   COMMENT '稀有度名: 凡品/良品/上品/珍品/绝品',
+  realm        VARCHAR(32)  NOT NULL DEFAULT ''   COMMENT '所属大境界',
+  realm_rank   INT UNSIGNED NOT NULL DEFAULT 0    COMMENT '大境界序号(1=凡人~22=大罗金仙, 同 pills.realm_rank)',
+  min_realm_id INT UNSIGNED NOT NULL DEFAULT 1    COMMENT '该大境界最小 realms.id(境界门槛比较用)',
+  price        BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '基准价格(灵石)',
+  origins      JSON         NOT NULL              COMMENT '产出地名称数组',
+  description  VARCHAR(255) NOT NULL DEFAULT ''   COMMENT '材料描述',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_name (name),
+  KEY idx_realm_rank (realm_rank),
+  KEY idx_type (type),
+  KEY idx_rarity (rarity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='成丹材料表';
+`
+
+// 建表语句：丹方表（每丹一方；仙王及以上丹药无丹方，材料明细在 pill_recipe_items）
+const CREATE_PILL_RECIPES_TABLE = `
+CREATE TABLE IF NOT EXISTS pill_recipes (
+  pill_id        VARCHAR(64)  NOT NULL             COMMENT '丹药ID(pills.id)',
+  material_count TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '材料味数(5~20)',
+  created_time   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (pill_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='丹方表';
+`
+
+// 建表语句：丹方材料明细表（一行一味；role: main主药/aux辅药/catalyst丹引）
+const CREATE_PILL_RECIPE_ITEMS_TABLE = `
+CREATE TABLE IF NOT EXISTS pill_recipe_items (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  pill_id     VARCHAR(64)     NOT NULL              COMMENT '丹药ID(pill_recipes.pill_id)',
+  material_id VARCHAR(64)     NOT NULL              COMMENT '材料ID(pill_materials.id)',
+  quantity    INT UNSIGNED    NOT NULL DEFAULT 1    COMMENT '所需份数',
+  role        VARCHAR(12)     NOT NULL DEFAULT 'aux' COMMENT '角色: main/aux/catalyst',
+  sort_order  TINYINT UNSIGNED NOT NULL DEFAULT 0   COMMENT '配方内顺序(主药0, 丹引最后)',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_pill_material (pill_id, material_id),
+  KEY idx_material (material_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='丹方材料明细表';
+`
+
 // 建表语句：玩家丹药背包表（同一玩家同种丹药同品质合并为一行计数量）
 const CREATE_USER_PILLS_TABLE = `
 CREATE TABLE IF NOT EXISTS user_pills (
@@ -489,6 +537,68 @@ async function seedPills() {
   console.log(`已导入丹药数据 ${pills.length} 种（品质物品 ${gradeValues.length} 件）`)
 }
 
+// 首次启动从数据文件导入成丹材料与丹方（幂等：材料判本表非空跳过；丹方判主表与明细表
+// 任一为空即事务内重导。数据文件顶层含 version/rules 等元信息，取 .materials / .recipes）
+async function seedPillMaterials() {
+  const raw = await readFile(join(__dirname, '../data/pill-materials.json'), 'utf8')
+  const data = JSON.parse(raw)
+
+  const [matRows] = await pool.query('SELECT COUNT(*) AS c FROM pill_materials')
+  if (matRows[0].c === 0) {
+    const values = data.materials.map((m) => [
+      m.id,
+      m.name,
+      m.type || '',
+      m.typeName || '',
+      m.rarity || '',
+      m.rarityName || '',
+      m.realm || '',
+      m.realmRank || 0,
+      m.minRealmId || 1,
+      m.price || 0,
+      JSON.stringify(m.origins || []),
+      m.description || '',
+    ])
+    await pool.query(
+      `INSERT INTO pill_materials
+        (id, name, type, type_name, rarity, rarity_name, realm, realm_rank, min_realm_id, price, origins, description)
+       VALUES ?`,
+      [values]
+    )
+    console.log(`已导入成丹材料 ${values.length} 种`)
+  }
+
+  // 丹方主表+明细同事务导入；跳过条件校验两表一致性——只判主表会把
+  // 「主表已提交、明细插入前进程中断」的残局当成已导完，永久留下有丹方无材料的状态
+  const [recipeRows] = await pool.query('SELECT COUNT(*) AS c FROM pill_recipes')
+  const [itemRows] = await pool.query('SELECT COUNT(*) AS c FROM pill_recipe_items')
+  if (recipeRows[0].c === 0 || itemRows[0].c === 0) {
+    const recipeValues = data.recipes.map((r) => [r.pillId, r.materialCount || (r.materials || []).length])
+    const itemValues = data.recipes.flatMap((r) =>
+      (r.materials || []).map((it, idx) => [r.pillId, it.materialId, it.quantity || 1, it.role || 'aux', idx])
+    )
+    const conn = await pool.getConnection()
+    try {
+      await conn.beginTransaction()
+      // 清残局后重导（正常首启两表皆空，DELETE 为空操作）
+      await conn.query('DELETE FROM pill_recipe_items')
+      await conn.query('DELETE FROM pill_recipes')
+      await conn.query('INSERT INTO pill_recipes (pill_id, material_count) VALUES ?', [recipeValues])
+      await conn.query(
+        'INSERT INTO pill_recipe_items (pill_id, material_id, quantity, role, sort_order) VALUES ?',
+        [itemValues]
+      )
+      await conn.commit()
+    } catch (e) {
+      await conn.rollback()
+      throw e
+    } finally {
+      conn.release()
+    }
+    console.log(`已导入丹方 ${recipeValues.length} 张（材料明细 ${itemValues.length} 条）`)
+  }
+}
+
 // 首次启动从数据文件导入功法（幂等：表非空则跳过；数据文件顶层含元信息，取 .techniques）
 async function seedTechniques() {
   const [rows] = await pool.query('SELECT COUNT(*) AS c FROM techniques')
@@ -664,6 +774,9 @@ export async function initDatabase() {
   await pool.query(CREATE_REALMS_TABLE)
   await pool.query(CREATE_PILLS_TABLE)
   await pool.query(CREATE_PILL_GRADES_TABLE)
+  await pool.query(CREATE_PILL_MATERIALS_TABLE)
+  await pool.query(CREATE_PILL_RECIPES_TABLE)
+  await pool.query(CREATE_PILL_RECIPE_ITEMS_TABLE)
   await pool.query(CREATE_USER_PILLS_TABLE)
   await pool.query(CREATE_TECHNIQUES_TABLE)
   await pool.query(CREATE_ARTIFACTS_TABLE)
@@ -817,6 +930,7 @@ export async function initDatabase() {
   // 播种境界数据 + 丹药数据 + 功法/法宝数据 + 默认管理员 + 系统配置
   await seedRealms()
   await seedPills()
+  await seedPillMaterials()
   await seedTechniques()
   await seedArtifacts()
   await seedDefaultAdmin()

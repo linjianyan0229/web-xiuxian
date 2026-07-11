@@ -7,6 +7,7 @@ import { getBreakthroughStatus, doBreakthrough } from '../controllers/breakthrou
 import { getMeditationStatus, startMeditation } from '../controllers/meditationController.js'
 import { avatarUpload, uploadAvatar, setAvatarUrl } from '../controllers/avatarController.js'
 import { getMyPills, getMyPillMeta, giftPill, discardPill } from '../controllers/userPillController.js'
+import { getPillRecipe } from '../controllers/pillMaterialController.js'
 import { getWorldMessages, postWorldMessage } from '../controllers/worldChatController.js'
 import {
   getSects,
@@ -73,6 +74,8 @@ router.get('/pills', authRequired, getMyPills)
 router.get('/pills/meta', authRequired, getMyPillMeta)
 router.post('/pills/gift', authRequired, giftPill)
 router.post('/pills/discard', authRequired, discardPill)
+// 需鉴权：丹方查阅（图鉴/炼丹预览；圣王以上丹药无方 404）
+router.get('/pills/:pillId/recipe', authRequired, getPillRecipe)
 // 需鉴权：修行日志（最近 N 条）
 router.get('/logs', authRequired, getLogs)
 // 需鉴权：今日修炼统计（修炼次数/打坐时长/获得修为 + 突破成功率，首页「今日修炼」面板）

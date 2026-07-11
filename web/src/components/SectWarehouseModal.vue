@@ -9,6 +9,7 @@ import {
 } from '../api/game.js'
 import { useAuthStore } from '../stores/auth.js'
 import { useToast } from '../composables/toast.js'
+import { useModalA11y } from '../composables/modalA11y.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -19,6 +20,10 @@ const emit = defineEmits(['close'])
 
 const auth = useAuthStore()
 const toast = useToast()
+const { dialogRef } = useModalA11y(
+  () => props.visible,
+  () => emit('close')
+)
 
 const tab = ref('store') // store=仓库 / deposit=存入
 const busy = ref(false)
@@ -198,9 +203,16 @@ function go(t, delta, reload) {
 
 <template>
   <div v-if="visible" class="mask" @click.self="emit('close')">
-    <div class="dialog">
-      <button class="x" @click="emit('close')" title="关闭">×</button>
-      <h3 class="title">{{ sectName || '宗门' }} · 仓库</h3>
+    <div
+      ref="dialogRef"
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="sect-wh-title"
+      tabindex="-1"
+    >
+      <button class="x" @click="emit('close')" title="关闭" aria-label="关闭">×</button>
+      <h3 id="sect-wh-title" class="title">{{ sectName || '宗门' }} · 仓库</h3>
       <p class="sub">
         {{ wh.level }} 级 ｜ 已用 {{ wh.used }} / {{ wh.capacity }} 格
         <button
@@ -337,6 +349,7 @@ function go(t, delta, reload) {
   box-shadow: 0 24px 60px -20px rgba(40, 38, 30, 0.6);
   animation: pop 0.2s ease-out;
 }
+.dialog:focus { outline: none; }
 @keyframes pop {
   from { transform: scale(0.94); opacity: 0; }
   to { transform: scale(1); opacity: 1; }

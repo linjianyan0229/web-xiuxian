@@ -24,18 +24,9 @@ function slotSoon(kind) {
   toast.info(kind === 'tech' ? SOON_TECH : SOON_ARTIFACT)
 }
 
-// 纳戒储物：真实丹药背包数据（当前唯一实装的持有物），格子最少铺满 MIN_CELLS 个
-const MIN_CELLS = 40
+// 纳戒储物：真实丹药背包数据（当前唯一实装的持有物），列表展示
 const state = reactive({ list: [], total: 0 })
 const loading = ref(false)
-
-// 格子数组：物品 + 空格补位（凑满最小容量且行对齐）
-const cells = computed(() => {
-  const items = state.list.map((row) => ({ kind: 'item', row }))
-  const need = Math.max(MIN_CELLS - items.length, (8 - (items.length % 8)) % 8)
-  for (let i = 0; i < need; i++) items.push({ kind: 'empty' })
-  return items
-})
 
 async function loadStorage() {
   loading.value = true
@@ -150,17 +141,26 @@ onMounted(async () => {
               仅展示前 {{ state.list.length }} 件，完整清单见「丹药」页
             </span>
           </header>
-          <div class="grid-wrap">
-            <div class="grid">
-              <template v-for="(c, i) in cells" :key="i">
-                <button v-if="c.kind === 'item'" class="cell item" :title="c.row.item_name" @click="openItem(c.row)">
-                  <span class="c-tag" :class="'g-' + c.row.grade">{{ c.row.grade_name }}</span>
-                  <span class="c-name">{{ c.row.item_name }}</span>
-                  <span class="c-qty">×{{ c.row.quantity }}</span>
-                </button>
-                <div v-else class="cell empty"></div>
-              </template>
+          <div class="list-wrap">
+            <div class="row row-head">
+              <span></span>
+              <span>物品</span>
+              <span class="col-realm">品阶</span>
+              <span class="col-cat">类型</span>
+              <span class="ta-r">数量</span>
             </div>
+            <button
+              v-for="row in state.list"
+              :key="row.pill_id + '-' + row.grade"
+              class="row row-item"
+              @click="openItem(row)"
+            >
+              <span class="g-tag" :class="'g-' + row.grade">{{ row.grade_name }}</span>
+              <span class="i-name">{{ row.item_name }}</span>
+              <span class="i-realm col-realm">{{ row.realm }}</span>
+              <span class="i-cat col-cat">{{ row.category_name }}</span>
+              <span class="i-qty ta-r">×{{ row.quantity }}</span>
+            </button>
             <p v-if="!loading && state.total === 0" class="st-empty">
               纳戒空空如也——丹药可待日后炼丹、机缘或道友相赠而得。
             </p>
@@ -396,74 +396,76 @@ onMounted(async () => {
   font-size: 11px;
   color: var(--ink-mut);
 }
-.grid-wrap {
+.list-wrap {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: 14px 18px;
+  padding: 6px 18px 14px;
 }
-.grid-wrap::-webkit-scrollbar { width: 0; }
-.grid {
+.list-wrap::-webkit-scrollbar { width: 0; }
+.row {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 8px;
-}
-.cell {
-  aspect-ratio: 1;
-  min-width: 0;
-  border-radius: 10px;
-}
-.cell.empty {
-  background: rgba(60, 56, 46, 0.04);
-  border: 1px dashed rgba(60, 56, 46, 0.14);
-}
-.cell.item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
+  grid-template-columns: 46px minmax(0, 1fr) 110px 90px 64px;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 4px;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 8px;
+  border-bottom: 1px solid rgba(60, 56, 46, 0.09);
+}
+.row-head {
+  padding-top: 12px;
+  padding-bottom: 8px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--ink-mut);
+  border-bottom: 1px solid var(--panel-line);
+}
+.row-item {
   font-family: inherit;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid rgba(184, 147, 63, 0.35);
+  font-size: 13px;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: background 0.15s;
 }
-.cell.item:hover {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 3px rgba(184, 147, 63, 0.14);
-}
-.c-tag {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 18px;
-  text-align: center;
-  font-size: 10px;
-  border-radius: 5px;
+.row-item:hover { background: rgba(184, 147, 63, 0.08); }
+.g-tag {
+  justify-self: start;
+  padding: 1px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 .g-fan { color: var(--ink-mut); background: rgba(60, 56, 46, 0.07); border: 1px solid var(--panel-line); }
 .g-ling { color: #4a3a12; background: rgba(184, 147, 63, 0.18); border: 1px solid rgba(184, 147, 63, 0.4); }
 .g-dao { color: #fff; background: linear-gradient(160deg, #c96a4a, #a8452f); border: 1px solid rgba(168, 69, 47, 0.5); }
-.c-name {
-  max-width: 100%;
-  font-size: 11px;
-  line-height: 1.3;
-  color: var(--ink-h);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+.i-name {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--ink-h);
 }
-.c-qty {
-  font-size: 11px;
+.i-realm,
+.i-cat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ink-mut);
+}
+.i-qty {
   font-weight: 700;
   color: var(--gold);
   font-variant-numeric: tabular-nums;
 }
+.ta-r { text-align: right; }
 .st-empty {
   margin: 0;
   padding: 42px 20px;
@@ -488,8 +490,11 @@ onMounted(async () => {
   .cols { flex-direction: column; }
   .char-panel { flex: none; }
   .portrait { min-height: 420px; }
-  .grid-wrap { overflow-y: visible; }
-  .grid { grid-template-columns: repeat(4, 1fr); }
+  .list-wrap { overflow-y: visible; }
+  /* 窄屏收起品阶/类型列，保留 品质/名称/数量 */
+  .row { grid-template-columns: 46px minmax(0, 1fr) 64px; }
+  .col-realm,
+  .col-cat { display: none; }
 }
 
 /* 手机屏：首行=返回+标题（缩字距保证 320px 一行放下），玩家信息独占第二行 */

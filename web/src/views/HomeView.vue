@@ -17,6 +17,13 @@ import { useToast } from '../composables/toast.js'
 import boyImg from '../../image/boy.webp'
 import girlImg from '../../image/girl.webp'
 import logoUrl from '../../image/logo.webp'
+import icoLingshi from '../../image/res/lingshi.webp'
+import icoXiuwei from '../../image/res/xiuwei.webp'
+import icoHp from '../../image/res/hp.webp'
+import icoLingqi from '../../image/res/lingqi.webp'
+import icoFangyu from '../../image/res/fangyu.webp'
+import icoJsl from '../../image/res/jsl.webp'
+import icoWuxing from '../../image/res/wuxing.webp'
 import { netStatus } from '../utils/network.js'
 import { fmtDateTime } from '../utils/datetime.js'
 
@@ -63,7 +70,7 @@ const rankTabs = [
 ]
 
 // 左侧功能栏（游戏模块，多数待开发）
-const navItems = ['修行', '探索', '功法', '法宝', '装备', '丹药', '宗门', '伙伴']
+const navItems = ['修行', '探索', '功法', '法宝', '装备', '丹药', '商店', '宗门', '伙伴']
 
 // 世界频道（全服聊天：进页拉最新一批，此后 5 秒一轮增量拉取；发言冷却由服务端把关）
 const chatMsgs = ref([])
@@ -229,17 +236,19 @@ function fmtCn(n) {
 // 道韵/道法按后端 dao_yun/dao_law_unlocked 标志展示——境界未达对应阶段自动隐藏（与详细属性弹窗同规则）
 const resources = computed(() => {
   const u = auth.user || {}
+  // 图标为 web/image/res/ 下 sharp 压制的 64px 小图（源图同名 2048² 在 web/image/，改图需重压）
+  // 战力取境界攻击值，图标沿用「灵气」（攻伐之力源于灵气）；道韵/道法暂无图标，回退 ◆
   const list = [
-    { label: '灵石', value: fmtCn(u.ling_shi) },
-    { label: '修为', value: fmtCn(u.cultivation) },
-    { label: '生命值', value: fmtCn(u.hp) },
-    { label: '战力', value: fmtCn(u.attack) },
-    { label: '防御', value: fmtCn(u.defense) },
-    { label: '精神力', value: fmtCn(u.spirit) },
+    { label: '灵石', value: fmtCn(u.ling_shi), icon: icoLingshi },
+    { label: '修为', value: fmtCn(u.cultivation), icon: icoXiuwei },
+    { label: '生命值', value: fmtCn(u.hp), icon: icoHp },
+    { label: '战力', value: fmtCn(u.attack), icon: icoLingqi },
+    { label: '防御', value: fmtCn(u.defense), icon: icoFangyu },
+    { label: '精神力', value: fmtCn(u.spirit), icon: icoJsl },
   ]
   if (Number(u.dao_yun_unlocked) === 1) list.push({ label: '道韵', value: fmtCn(u.dao_yun) })
   if (Number(u.dao_law_unlocked) === 1) list.push({ label: '道法', value: fmtCn(u.dao_law) })
-  list.push({ label: '悟性', value: `${Number(u.comprehension) || 0}%` })
+  list.push({ label: '悟性', value: `${Number(u.comprehension) || 0}%`, icon: icoWuxing })
   return list
 })
 // 常用功能
@@ -296,7 +305,7 @@ const genderLabel = computed(() => (isFemale.value ? '女修' : '男修'))
 // 立绘本身即浅色水墨调，只覆一层轻纱渐变防遮图；文字可读性由 .char 的文字光晕兜底
 const charBgStyle = computed(() => ({
   backgroundImage:
-    'linear-gradient(180deg, rgba(251, 250, 245, 0.5) 0%, rgba(251, 250, 245, 0.28) 40%, rgba(251, 250, 245, 0.1) 100%), ' +
+    'linear-gradient(180deg, rgba(251, 250, 245, 0.3) 0%, rgba(251, 250, 245, 0.15) 40%, rgba(251, 250, 245, 0.05) 100%), ' +
     `url(${isFemale.value ? girlImg : boyImg})`,
 }))
 
@@ -486,6 +495,8 @@ function onNav(name, index) {
   if (index === 0) return
   if (name === '装备') router.push({ name: 'equipment' })
   else if (name === '丹药') router.push({ name: 'pills' })
+  else if (name === '商店') router.push({ name: 'shop' })
+  else if (name === '探索') router.push({ name: 'explore' })
   else if (name === '宗门') router.push({ name: auth.user?.sect_id ? 'my-sect' : 'sect' })
   else if (name === '伙伴') router.push({ name: 'friends' })
   else soon(name)
@@ -602,7 +613,7 @@ onUnmounted(() => {
       </div>
       <div class="resources">
         <span v-for="r in resources" :key="r.label" class="res">
-          <i>◆</i>{{ r.label }} <b>{{ r.value }}</b>
+          <img v-if="r.icon" class="res-ico" :src="r.icon" alt="" /><i v-else>◆</i>{{ r.label }} <b>{{ r.value }}</b>
         </span>
       </div>
       <div class="top-actions">
@@ -970,6 +981,13 @@ onUnmounted(() => {
   color: var(--gold);
   margin-right: 6px;
   font-style: normal;
+}
+.res-ico {
+  width: 17px;
+  height: 17px;
+  margin-right: 6px;
+  vertical-align: -3px;
+  object-fit: contain;
 }
 .res b {
   color: var(--ink-h);
